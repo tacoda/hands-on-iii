@@ -15,6 +15,12 @@ containers:
   harness:
     worker: package://harness
     version: "1.8.52"
+    working_dir: .
+    environment:
+      SETTINGS_DIR: ${SETTINGS_DIR:-./settings}
+    scripts:
+      pre_run: python3 scripts/config.py --check
+      pre_run_timeout: 10s
   session-manager:
     worker: package://session-manager
     version: "1.0.13"
