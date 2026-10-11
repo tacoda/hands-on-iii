@@ -3,6 +3,10 @@ stop_timeout: 10s
 
 engine:
   url: ws://127.0.0.1:49134
+  observers:
+    # How long a queue::on-message target has per message: 30 s by default.
+    # A stage can wait on git or a model call for longer, so give it 30 minutes.
+    activation_timeout_ms: 1800000
   workers:
     configuration: {}
     iii-worker-manager:
@@ -71,4 +75,12 @@ containers:
       PYTHONUNBUFFERED: "1"
     scripts:
       run: .venv/bin/python workers/ladder/src/main.py
+    working_dir: .
+  factory:
+    worker: path://./workers/factory
+    start_after: [harness, queue, state]
+    environment:
+      PYTHONUNBUFFERED: "1"
+    scripts:
+      run: .venv/bin/python workers/factory/src/main.py
     working_dir: .

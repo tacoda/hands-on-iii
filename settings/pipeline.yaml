@@ -1,0 +1,8 @@
+first: plan
+stages:
+  plan:    {action: stub, next: run}
+  run:     {action: stub, next: commit}
+  commit:  {action: stub, next: publish, on_refusal: {goto: run, max: 2}}
+  publish: {action: stub, next: waiting}
+  waiting: {action: watch, on_merge: landed, on_close: closed, on_comment: rework}
+  rework:  {action: stub, next: run}
