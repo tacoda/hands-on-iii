@@ -1,0 +1,29 @@
+id: queue
+name: Queue
+description: 'Durable queue worker settings: transport persistence and named function queues.'
+value:
+  adapter:
+    config:
+      file_path: ./data/queue
+      save_interval_ms: 5000
+      store_method: file_based
+    name: builtin
+  queue_configs:
+    harness-session-deletion:
+      backoff_ms: 1000
+      concurrency: 2
+      max_retries: 3
+      message_group_field: operation_id
+      poll_interval_ms: 100
+      redeliver_on_engine_restart: true
+      timeout_ms: 600000
+      type: fifo
+    harness-turn:
+      backoff_ms: 1000
+      concurrency: 10
+      max_retries: 3
+      message_group_field: session_id
+      poll_interval_ms: 100
+      redeliver_on_engine_restart: true
+      timeout_ms: 1800000
+      type: fifo

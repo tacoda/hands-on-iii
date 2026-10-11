@@ -9,6 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "workers" / "ladder" / "src"))
+sys.path.insert(0, str(ROOT / "workers" / "factory" / "src"))
 
 
 @pytest.fixture
@@ -71,12 +72,19 @@ class FakeWorker:
     def __init__(self, address, options):
         self.address, self.options = address, options
         self.functions, self.triggers = {}, []
+        self.calls, self.answers = [], {}
 
     def register_function(self, function_id, handler, **kwargs):
         self.functions[function_id] = handler
 
     def register_trigger(self, trigger):
         self.triggers.append(trigger)
+
+    def trigger(self, request):
+        # Every engine call a worker makes lands here; a test sets `answers`.
+        self.calls.append((request["function_id"], request.get("payload")))
+        answer = self.answers.get(request["function_id"])
+        return answer(request.get("payload")) if callable(answer) else answer
 
 
 @pytest.fixture
@@ -94,6 +102,29 @@ def ladder_main(monkeypatch):
     spec = importlib.util.spec_from_file_location("ladder_main", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+def factory_main(monkeypatch, tmp_path):
+    """workers/factory/src/main.py against a stand-in `iii`, with jobs in a temporary folder."""
+    fake = types.ModuleType("iii")
+    fake.InitOptions = lambda **kwargs: kwargs
+    fake.register_worker = FakeWorker
+    monkeypatch.setitem(sys.modules, "iii", fake)
+    monkeypatch.setenv("III_URL", "ws://127.0.0.1:49134")
+    monkeypatch.setenv("FACTORY_JOBS", str(tmp_path / "jobs"))
+    path = ROOT / "workers" / "factory" / "src" / "main.py"
+    spec = importlib.util.spec_from_file_location("factory_main", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.worker.answers.update({
+        "engine::functions::info": {"function_id": "ladder::gate", "worker_name": "ladder"},
+        "ladder::list": {"rules": [], "withheld": []},
+        "approval::set-mode": {"ok": True},
+        "harness::send": lambda p: {"session_id": p["session_id"], "turn_id": "t_1",
+                                    "accepted": True},
+    })
     return module
 
 

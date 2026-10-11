@@ -74,3 +74,11 @@ containers:
     scripts:
       # From the worker's own directory, where npm ci put tsx.
       run: npx tsx src/index.ts
+  factory:
+    worker: path://./workers/factory
+    start_after: [harness, queue, state]
+    environment:
+      PYTHONUNBUFFERED: "1"
+    scripts:
+      run: .venv/bin/python workers/factory/src/main.py
+    working_dir: .
