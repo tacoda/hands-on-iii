@@ -15,14 +15,24 @@ DEFAULT = {
     "first": "prepare",
     "stages": {
         "prepare": {"action": "prepare", "next": "plan"},
-        "plan":    {"action": "turn", "next": "run"},
-        "run":     {"action": "turn", "next": "commit"},
+        "plan":    {"action": "turn", "phase": "plan", "requires": ["spec"],
+                    "produces": ["plan"], "next": "run"},
+        # spec, not plan: a revision or a rework skips plan, and run must start twice.
+        "run":     {"action": "turn", "phase": "run", "requires": ["spec"],
+                    "produces": ["work"], "on_interrupt": "blocked", "next": "prove"},
+        "prove":   {"action": "turn", "phase": "prove", "requires": ["work"],
+                    "produces": ["proof"], "contract": "proven", "reset_worktree": True,
+                    "next": "review"},
+        "review":  {"action": "turn", "phase": "review", "requires": ["work"],
+                    "produces": ["review"], "contract": "verdict", "reset_worktree": True,
+                    "on_blocker": "blocked", "next": "commit"},
         "commit":  {"action": "commit", "next": "publish",
                     "on_refusal": {"goto": "run", "max": 2, "stop_when_identical": True}},
         "publish": {"action": "publish", "next": "waiting"},
         "waiting": {"action": "watch", "on_merge": "landed", "on_close": "closed",
                     "on_comment": "rework"},
-        "rework":  {"action": "stub", "next": "run"},
+        "rework":  {"action": "rework", "next": "run"},
+        "blocked": {"action": "hold", "on_answer": "run"},
     },
 }
 
@@ -53,6 +63,15 @@ def next_stage(job: dict, graph: dict, result: dict) -> tuple[str, str]:
         # A problem, not a refusal: no revision brings a worker back up.
         return "failed", f"{job['stage']} failed: {result.get('error') or 'no reason given'}"
     stage = graph["stages"][job["stage"]]
+    if "on_answer" in stage:
+        # A blocked job: nothing retries it, and only a person's answer moves it.
+        if result.get("answered"):
+            return stage["on_answer"], "a person answered"
+        return job["stage"], "the job waits for a person"
+    if result.get("interrupt") and stage.get("on_interrupt"):
+        return stage["on_interrupt"], f"{job['stage']} asked: {result['interrupt']}"
+    if result.get("blocker") and stage.get("on_blocker"):
+        return stage["on_blocker"], f"{job['stage']} named a blocker at {result['blocker']}"
     if "on_merge" in stage:
         target = stage.get(f"on_{result.get('outcome', '')}")
         return (target, "the person acted") if target else (job["stage"], "the job waits")

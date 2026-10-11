@@ -160,7 +160,8 @@ def test_a_failed_release_does_not_stop_teardown(worker):
 @pytest.fixture
 def walked(factory_main, settings_dir, git_repo):
     """settings/ for a full walk: plan and run phases, and the git_repo as a local forge."""
-    (settings_dir / "phases.yaml").write_text("phases:\n  plan: {}\n  run: {}\n")
+    (settings_dir / "phases.yaml").write_text(
+        "phases:\n  plan: {}\n  run: {}\n  prove: {}\n  review: {}\n")
     (settings_dir / "repos.toml").write_text(
         f'[repos."{git_repo}"]\nforge = "local"\nbase = "main"\n')
     shell = Shell()
@@ -183,6 +184,12 @@ def walked(factory_main, settings_dir, git_repo):
     return factory_main
 
 
+# What each phase's turn answers in these walks: enough for every exit check.
+ANSWERS = {"plan": "Add a Ports section.", "run": "Added a Ports section.",
+           "prove": "PROVEN: yes\n\n- [x] one section\n      $ grep -c Ports README.md\n      1\n",
+           "review": "VERDICT: pass\n"}
+
+
 def deliver(factory_main, job_id):
     """Drain the queue; finish each turn as the harness would, after `edits` runs."""
     done = 0
@@ -196,8 +203,9 @@ def deliver(factory_main, job_id):
         job = jobs.read(job_id)
         if job.get("session_id"):
             yield job
+            phase = job["session_id"].split("_")[2]
             factory_main.turn_completed({"session_id": job["session_id"], "status": "completed",
-                                         "terminal": True})
+                                         "terminal": True, "result": ANSWERS[phase]})
 
 
 def hook(repo, body):
@@ -241,7 +249,8 @@ def test_run_it_an_identical_refusal_fails_after_one_revision(walked, git_repo):
     job = jobs.read(job_id)
     assert (job["stage"], job["revisions"]) == ("failed", 1)
     assert job["history"][-1]["why"].startswith("the refusal came back word for word")
-    assert [s["session_id"].split("_", 2)[2] for s in sent(walked)] == ["plan_1", "run_1", "run_2"]
+    assert [s["session_id"].split("_", 2)[2] for s in sent(walked)] == [
+        "plan_1", "run_1", "prove_1", "review_1", "run_2", "prove_2", "review_2"]
     assert not (git_repo / "requests").exists()
     assert ("worktree::release", {"worktree_id": "wt_1", "session_id": job_id}) in walked.worker.calls
     assert not any(fid == "worktree::remove" for fid, _ in walked.worker.calls)

@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 STATUS = re.compile(r"^status:\s*(\w+)\s*$", re.MULTILINE | re.IGNORECASE)
+# A person comments on a local request by adding this line, then the comment.
+COMMENT = re.compile(r"^### comment\s*$", re.MULTILINE | re.IGNORECASE)
 
 
 def call(function_id: str, payload: dict, allow_failure: bool = False) -> dict:
@@ -97,7 +99,8 @@ def request_text(job: dict, body: str) -> str:
             f"branch: {branch}\n"
             f"base: {base}\n\n"
             f"To land this request, merge `{branch}` into `{base}`. To reject it, "
-            f"change the status line above to `status: closed`.\n\n"
+            f"change the status line above to `status: closed`. To ask for a change, "
+            f"add a line `### comment` at the end of this file, then your comment.\n\n"
             f"{body.rstrip()}\n")
 
 
@@ -172,7 +175,12 @@ def local_comment_calls(job: dict) -> list:
 
 
 def local_comments(answers: list) -> list:
-    return []  # chapter 10 reads the comments in the request file
+    """Each `### comment` block in the request file, oldest first. The id is its
+    position, which stays put because a person appends."""
+    text = text_of(answers[0]) if answers and answers[0].get("ok") else ""
+    blocks = COMMENT.split(text)[1:]
+    return [{"id": f"comment-{n}", "body": body.strip()}
+            for n, body in enumerate(blocks, 1) if body.strip()]
 
 
 def local_say(job: dict, body: str) -> list:

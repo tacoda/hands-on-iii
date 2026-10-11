@@ -1,15 +1,18 @@
-"""What a stage does: prepare, a turn, commit, publish, watch, and teardown.
+"""What a stage does: prepare, a turn, commit, publish, watch, rework, and teardown.
 
-`from_turn` and `per_file` are pure. Every other function talks to the engine
+`from_turn`, `per_file`, `render`, and `derive_outcome` are pure. Every other function talks to the engine
 only through the worker (or the `call(function_id, payload)`) it is given, so a
 test passes a fake. Every git command goes through `shell::exec`, and every
 stage that changes the world checks whether its change already exists.
 """
 
 import re
+import string
 import sys
 from pathlib import Path
 
+import contracts
+import document
 import forge
 import graph as stage_graph
 import jobs
@@ -22,6 +25,13 @@ import turn     # noqa: E402  scripts/, the same send chapter 3 builds
 
 GATE = "ladder::gate"
 ENDED = {"completed", "cancelled", "failed"}
+# The factory pushes with your credentials, so it is the request's author, and
+# its own comments are told apart by this instead.
+MARKER = "<!-- factory -->"
+
+
+def prompts() -> Path:
+    return ROOT / "prompts"
 
 
 def run_stage(job: dict, graph: dict | None = None, worker=None) -> dict:
@@ -55,21 +65,41 @@ def ladder_registered(call) -> bool:
     return bool(info) and GATE in str(info) and "function_not_found" not in str(info)
 
 
-def brief(job: dict) -> str:
+def phase_of(job: dict, stage: dict | None = None) -> str:
+    stage = stage if stage is not None else stage_graph.load()["stages"].get(job["stage"]) or {}
+    return str(stage.get("phase") or job["stage"])
+
+
+def render(template: str, fields: dict) -> str:
+    # Plain substitution and nothing more; safe_substitute leaves a $PATH in a
+    # spec alone instead of failing the turn.
+    return string.Template(template).safe_substitute(fields)
+
+
+def brief(job: dict, phase: str | None = None) -> str:
     if job.get("brief"):
-        # A refusal, word for word: the people who wrote the hook said the most
-        # specific thing anyone has said about this diff.
+        # A refusal or a reviewer's comment, word for word: the most specific
+        # thing anyone has said about this diff, with no spec beside it.
         return job["brief"]
-    spec = Path(job["spec"])
-    text = (spec if spec.is_absolute() else ROOT / spec).read_text()
-    return f"Phase: {job['stage']}. Job: {job['id']}.\n\n{text}"
+    text = document.load(job)
+    prompt = prompts() / f"{phase or job['stage']}.md"
+    if not prompt.is_file():
+        return text
+    # Read at send time, so an edit to prompts/ needs no restart.
+    return render(prompt.read_text(), {"document": text, "base": base_ref(job)})
 
 
-def build_send(job: dict, session: str, call) -> tuple[dict, str, str]:
+def stage_level(stage_name: str) -> str | None:
+    # settings/oversight.yaml can name a level per stage; the default otherwise.
+    return (turn.settings("oversight").get("stages") or {}).get(stage_name)
+
+
+def build_send(job: dict, session: str, call, phase: str | None = None) -> tuple[dict, str, str]:
+    phase = phase or job["stage"]
     # The job's own worktree once prepare made one: every turn edits only that.
     repo = Path(job.get("path") or job["repo"])
     workspace = str(repo if repo.is_absolute() else (ROOT / repo).resolve())
-    send = turn.send_options(job["stage"], workspace)
+    send = turn.send_options(phase, workspace)
     built = charter.for_repo(Path(workspace))
     if built.pieces:
         send["options"]["system_prompt"] = built.text()
@@ -80,34 +110,97 @@ def build_send(job: dict, session: str, call) -> tuple[dict, str, str]:
         raise RuntimeError("ladder::list did not answer, so the repo's withheld functions are unknown")
     deny = send["options"]["functions"].setdefault("deny", [])
     deny += [fid for fid in taken if fid not in deny]
-    level, mode = turn.oversight()
+    level, mode = turn.oversight(stage_level(job["stage"]))
     meta["oversight"] = level
     # The key is the session id, so a duplicate stage message gets the
     # original turn back with deduplicated: true and starts nothing.
     return ({"session_id": session, "idempotency_key": session,
-             "message": brief(job), **send}, level, mode)
+             "message": brief(job, phase), **send}, level, mode)
 
 
-def start_turn(job: dict, call) -> dict:
+def start_turn(job: dict, call, worker=None, stage: dict | None = None) -> dict:
+    stage = stage if stage is not None else stage_graph.load()["stages"].get(job["stage"]) or {}
+    phase = phase_of(job, stage)
     if not ladder_registered(call):
         # Raise before writing anything: the queue retries, then dead-letters,
         # and no turn starts with no rule in front of it.
         raise RuntimeError(f"{GATE} is not registered, so no rule would refuse a call. "
                            "Start the ladder, then redrive factory.stage.")
+    absent = document.missing(document.load(job), list(stage.get("requires") or []))
+    if absent:
+        # The entry check, before anyone pays for a turn that would run on nothing.
+        return {"failed": f"{job['stage']} needs {', '.join(absent)} in the document "
+                          "and there is none"}
     session = job.get("session_id")
     if not session:
         # Every move clears session_id, so one already here belongs to this epoch.
-        n = (job.get("turns") or {}).get(job["stage"], 0) + 1
-        session = jobs.session_id(job, job["stage"], n)
-        job = {**job, "session_id": session, "turns": {**(job.get("turns") or {}),
-                                                        job["stage"]: n}}
+        n = (job.get("turns") or {}).get(phase, 0) + 1
+        session = jobs.session_id(job, phase, n)
+        job = {**job, "session_id": session, "turns": {**(job.get("turns") or {}), phase: n}}
+        if stage.get("reset_worktree"):
+            taken = snapshot(worker, job) if worker is not None else {
+                "ok": False, "error": "no worker to run git with"}
+            if not taken["ok"]:
+                # A check you cannot undo is a check that can repair.
+                return {"failed": f"could not snapshot the worktree before {job['stage']}: "
+                                  f"{taken['error']}"}
+            job["snapshot"] = taken["tree"]
         jobs.write(job)                  # the record first, then the send
-    send, level, mode = build_send(job, session, call)
+    send, level, mode = build_send(job, session, call, phase)
     # A mode set after the send does not reach the calls the turn already made.
     call("approval::set-mode", {"session_id": session, "mode": mode})
     answer = call("harness::send", send) or {}
     return {"started": session, "oversight": level,
             "deduplicated": bool(answer.get("deduplicated"))}
+
+
+def section_for(text: str, name: str, answer: dict) -> str:
+    """The turn's answer, with what the contract made of it underneath, so a
+    downgrade keeps the claim and its correction side by side."""
+    if answer["value"] == answer["claimed"]:
+        return f"{text.strip()}\n\nContract `{name}`: `{answer['value']}`."
+    said = f"`{answer['claimed']}`" if answer["claimed"] else "nothing readable"
+    return (f"{text.strip()}\n\nContract `{name}`: `{answer['value']}`. The turn "
+            f"answered {said}, and {answer['why']}.")
+
+
+def finish_turn(worker, job: dict, stage: dict, result: dict) -> dict:
+    """What a completed turn means for its stage: reset a check's tree, then an
+    interrupt, the exit check, and the contract, in that order."""
+    record = {}
+    if job.get("snapshot"):
+        restored = restore(worker, job)
+        record["snapshot"] = None
+        if not restored["ok"]:
+            return {"failed": f"could not reset the worktree after {job['stage']}: "
+                              f"{restored['error']}", "record": record}
+    if result.get("failed"):
+        return {**result, "record": record}
+    text = contracts.text_of(result.get("result"))
+    # Before the contract: a turn that stopped to ask has no answer to grade.
+    question = contracts.interrupt(text) if stage.get("on_interrupt") else ""
+    if question:
+        return {"interrupt": question, "record": record | {"question": question}}
+    produces = list(stage.get("produces") or [])
+    if not produces:
+        return {"ok": True, "record": record}
+    name = stage.get("contract")
+    answer = contracts.read(text, name) if name and text.strip() else None
+    body = section_for(text, name, answer) if answer else text
+    written = document.put(document.load(job), produces[0], body)
+    document.save(job, written)
+    absent = document.missing(written, produces)
+    if absent:
+        return {"failed": f"{job['stage']} produced no {', '.join(absent)}", "record": record}
+    if answer is None:
+        return {"ok": True, "record": record}
+    record["contracts"] = {**(job.get("contracts") or {}), name: answer}
+    if answer["value"] == "blocker" and stage.get("on_blocker"):
+        # Only a readable blocker reaches here, so it always names a place.
+        where = contracts.place(text)
+        return {"ok": True, "blocker": where,
+                "record": record | {"question": f"{job['stage']} named a blocker at {where}"}}
+    return {"ok": True, "record": record}
 
 
 # ------------------------------------------------------------ the engine
@@ -218,6 +311,34 @@ def prepare(worker, job: dict, settings: dict) -> dict:
             # No turn can work where the stack will not come up.
             return {"ok": False, "error": f"prepare failed: {ran['error']}", "record": record}
     return {"ok": True, "record": record}
+
+
+# ------------------------------------------------- checks cannot repair
+
+def snapshot(worker, job: dict) -> dict:
+    """The run's uncommitted work as a tree object: no commit, no branch change."""
+    tree = str(job.get("path") or "")
+    if not tree:
+        return {"ok": False, "error": "the job has no worktree"}
+    added = run(worker, "git", ["add", "-A"], tree)
+    if not added["ok"]:
+        return {"ok": False, "error": f"git add -A failed: {added['error']}"}
+    written = run(worker, "git", ["write-tree"], tree)
+    if not written["ok"] or not written["output"].strip():
+        return {"ok": False, "error": f"git write-tree failed: {written.get('error')}"}
+    return {"ok": True, "tree": written["output"].strip()}
+
+
+def restore(worker, job: dict) -> dict:
+    """Put the snapshot back: changed and deleted files return, created ones
+    go. Ignored files stay. A commit the check made is not undone."""
+    tree = str(job.get("path") or "")
+    for args in (["read-tree", job["snapshot"]], ["checkout-index", "-a", "-f"],
+                 ["clean", "-fd"]):
+        done = run(worker, "git", args, tree)
+        if not done["ok"]:
+            return {"ok": False, "error": f"git {' '.join(args)} failed: {done['error']}"}
+    return {"ok": True}
 
 
 # ------------------------------------------------------------ the commit
@@ -343,8 +464,9 @@ def commit(worker, job: dict, settings: dict) -> dict:
 # ----------------------------------------------------- publish and watch
 
 def request_body(job: dict) -> str:
-    spec = Path(job["spec"])
-    return (spec if spec.is_absolute() else ROOT / spec).read_text()
+    # The document the phases built, unchanged: what was asked, planned,
+    # built, proved, and found.
+    return document.load(job)
 
 
 def publish(worker, job: dict, settings: dict) -> dict:
@@ -368,10 +490,24 @@ def publish(worker, job: dict, settings: dict) -> dict:
     return {"ok": True, "opened": True, "record": {"request": request}}
 
 
+def derive_outcome(job: dict, pr: dict) -> dict:
+    state = str(pr.get("state") or "").lower()
+    if pr.get("merged") or state == "merged":
+        return {"outcome": "merge"}
+    if state == "closed":
+        return {"outcome": "close"}
+    for comment in reversed(pr.get("comments") or []):
+        if MARKER in str(comment.get("body") or ""):
+            continue                                   # the factory's own
+        if comment.get("id") == job.get("answered_comment"):
+            return {"outcome": ""}                     # already reworked
+        return {"outcome": "comment", "brief": comment.get("body"),
+                "comment_id": comment.get("id")}
+    return {"outcome": ""}
+
+
 def outcome_of(state: dict) -> str:
-    if state.get("merged"):
-        return "merge"
-    return "close" if state.get("state") == "closed" else ""
+    return derive_outcome({}, {**state, "comments": []})["outcome"]
 
 
 def watch(worker, job: dict, settings: dict) -> dict:
@@ -379,8 +515,40 @@ def watch(worker, job: dict, settings: dict) -> dict:
         return {"outcome": ""}
     driver = forge.for_job(job)
     answers, failed = perform(worker, driver.view_calls(job))
-    # A read that failed is a person who has not acted yet, never a landing.
-    return {"outcome": "" if failed else outcome_of(driver.state(job, answers))}
+    if failed:
+        # A read that failed is a person who has not acted yet, never a landing.
+        return {"outcome": ""}
+    pr = dict(driver.state(job, answers))
+    said, _ = perform(worker, driver.comment_calls(job))
+    pr["comments"] = driver.comments(said)
+    found = derive_outcome(job, pr)
+    if found["outcome"] != "comment":
+        return {"outcome": found["outcome"]}
+    return {"outcome": "comment",
+            "record": {"comment": {"id": found["comment_id"], "body": found["brief"]}}}
+
+
+# ---------------------------------------------------- rework and blocked
+
+def rework(worker, job: dict, settings: dict) -> dict:
+    """Claim the same tree again, say the comment was read, and make the
+    comment the whole brief for run."""
+    comment = job.get("comment") or {}
+    if not str(comment.get("body") or "").strip():
+        return {"ok": False, "error": "rework has no comment to work from"}
+    prepared = prepare(worker, job, settings)
+    if not prepared.get("ok"):
+        return prepared
+    # The marker, so the next poll does not read this reply as new feedback.
+    reply = f"{MARKER}\nThe factory read this comment and is reworking the change."
+    perform(worker, forge.for_job(job).say_calls(job, reply))
+    return {"ok": True, "record": {**prepared.get("record", {}), "brief": comment["body"],
+                                   "answered_comment": comment.get("id"), "comment": None}}
+
+
+def hold(worker, job: dict, settings: dict) -> dict:
+    # Nothing retries a blocked job. Only factory::answer moves it.
+    return {}
 
 
 # -------------------------------------------------------------- teardown
@@ -404,4 +572,5 @@ def teardown(worker, job: dict) -> dict:
     return {"did": did}
 
 
-ACTIONS = {"prepare": prepare, "commit": commit, "publish": publish, "watch": watch}
+ACTIONS = {"prepare": prepare, "commit": commit, "publish": publish, "watch": watch,
+           "rework": rework, "hold": hold}

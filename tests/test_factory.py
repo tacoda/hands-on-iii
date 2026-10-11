@@ -383,10 +383,10 @@ def test_the_factory_registers_as_factory(factory_main):
     assert factory_main.worker.options == {"worker_name": "factory"}
     assert set(factory_main.worker.functions) == {
         "factory::submit", "factory::step", "factory::turn_completed",
-        "factory::tick", "factory::jobs"}
+        "factory::tick", "factory::jobs", "factory::answer", "factory::verdict_guard"}
 
 
-def test_the_bindings_are_the_three_the_chapter_names(factory_main):
+def test_the_observers_are_the_ones_the_chapters_name(factory_main):
     """Without the subscriber, every job writes its first record and stops."""
     by = {o["source"]["function_id"]: o for o in factory_main.worker.observers}
     # A fixed id, so a restarted factory takes over its own queue and backlog.
