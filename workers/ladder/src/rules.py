@@ -18,12 +18,11 @@ TEAM = ROOT / "rules"
 PROJECT = Path(".agents") / "rules"
 POLICIES = ("refuse", "ask", "warn")
 
-# A rung is carried only when something runs it. Chapter 9's delivery gate
-# adds rung 4 here, and only then may a rule claim it.
-CARRIED = {0: "prose in the charter", 3: "ladder::gate at harness::hook::pre-trigger"}
+# A rung is carried only when something runs it, and only then may a rule claim it.
+CARRIED = {0: "prose in the charter", 3: "ladder::gate at harness::hook::pre-trigger",
+           4: "the factory's delivery gate, through ladder::evaluate"}
 ELSEWHERE = {1: "rung 1 is the grant in settings/phases.yaml, not a rule file",
              2: "rung 2 is the target repository's .agents/settings.json, not a rule file",
-             4: "nothing carries rung 4 until chapter 9's delivery gate",
              5: "rung 5 is CI, outside this machine"}
 FRONT = re.compile(r"\A---\n(.*?)\n---[ \t]*\n?(.*)\Z", re.S)
 

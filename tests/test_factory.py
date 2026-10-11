@@ -14,6 +14,22 @@ ROOT = Path(__file__).resolve().parents[1]
 SUBMIT = {"spec": "specs/document-the-ports.md", "repo": "tests/fixtures/sample-repo"}
 TURN_PLAN = ("first: plan\nstages:\n  plan: {action: turn, next: run}\n"
              "  run: {action: stub, next: landed}\n")
+# Chapter 8's all-stub graph, so these tests still walk a job with no engine.
+STUBS = """first: plan
+stages:
+  plan:    {action: stub, next: run}
+  run:     {action: stub, next: commit}
+  commit:  {action: stub, next: publish, on_refusal: {goto: run, max: 2}}
+  publish: {action: stub, next: waiting}
+  waiting: {action: watch, on_merge: landed, on_close: closed, on_comment: rework}
+  rework:  {action: stub, next: run}
+"""
+
+
+@pytest.fixture
+def stubs(settings_dir):
+    (settings_dir / "pipeline.yaml").write_text(STUBS)
+    return settings_dir
 
 
 def published(factory_main):
@@ -147,7 +163,7 @@ def test_submit_ignores_the_keys_the_engine_adds(factory_main, settings_dir):
     assert jobs.read(answer["job_id"]) is not None
 
 
-def test_submit_writes_epoch_zero_at_first_and_publishes_one_message(factory_main, settings_dir):
+def test_submit_writes_epoch_zero_at_first_and_publishes_one_message(factory_main, stubs):
     """The message is the three keys and nothing else, so it can never disagree with the file."""
     answer = factory_main.submit(SUBMIT)
     job = jobs.read(answer["job_id"])
@@ -157,7 +173,7 @@ def test_submit_writes_epoch_zero_at_first_and_publishes_one_message(factory_mai
 
 # One message per transition
 
-def test_stub_job_walks_to_waiting_with_four_history_entries(factory_main, settings_dir):
+def test_stub_job_walks_to_waiting_with_four_history_entries(factory_main, stubs):
     """Run it's first step: no forge, so the job stops at waiting."""
     job_id = factory_main.submit(SUBMIT)["job_id"]
     drain(factory_main)
@@ -165,7 +181,7 @@ def test_stub_job_walks_to_waiting_with_four_history_entries(factory_main, setti
     assert job["stage"] == "waiting" and len(job["history"]) == 4
 
 
-def test_the_epoch_guard_drops_a_stale_redelivery(factory_main, settings_dir):
+def test_the_epoch_guard_drops_a_stale_redelivery(factory_main, stubs):
     """A duplicate run message would open a second commit and a second pull request."""
     job_id = factory_main.submit(SUBMIT)["job_id"]
     drain(factory_main)
@@ -176,20 +192,20 @@ def test_the_epoch_guard_drops_a_stale_redelivery(factory_main, settings_dir):
     assert jobs.read(job_id) == before and len(published(factory_main)) == count
 
 
-def test_a_loop_back_to_the_same_stage_gets_a_new_epoch(factory_main, settings_dir):
+def test_a_loop_back_to_the_same_stage_gets_a_new_epoch(factory_main, stubs):
     """A stage name alone cannot tell the first run from the third."""
     job_id = factory_main.submit({**SUBMIT, "stub_refuse": "commit"})["job_id"]
     drain(factory_main)
     job = jobs.read(job_id)
     assert job["stage"] == "failed"
-    assert job["history"][-1]["why"] == "refused 3 times"
+    assert job["history"][-1]["why"].startswith("commit refused 3 times")
     assert [h["epoch"] for h in job["history"] if h["to"] == "run"] == [1, 3, 5]
     for epoch in (1, 3):
         assert "skipped" in factory_main.step({"job_id": job_id, "stage": "run", "epoch": epoch})
     assert jobs.read(job_id) == job
 
 
-def test_a_transition_to_the_same_stage_is_not_one(factory_main, settings_dir):
+def test_a_transition_to_the_same_stage_is_not_one(factory_main, stubs):
     """ghola's first reconciler spun 2,020 history entries in 75 seconds without this."""
     job_id = factory_main.submit(SUBMIT)["job_id"]
     drain(factory_main)
@@ -199,7 +215,7 @@ def test_a_transition_to_the_same_stage_is_not_one(factory_main, settings_dir):
     assert jobs.read(job_id) == before and len(published(factory_main)) == count
 
 
-def test_a_terminal_stage_publishes_nothing(factory_main, settings_dir):
+def test_a_terminal_stage_publishes_nothing(factory_main, stubs):
     """A message for failed would wake a consumer with nothing to do, forever."""
     factory_main.submit({**SUBMIT, "stub_refuse": "commit"})
     assert all(m["stage"] not in graph.TERMINAL for m in drain(factory_main))
@@ -330,7 +346,7 @@ def test_tick_reports_a_missing_ladder_first(factory_main, settings_dir):
 
 # A clock for what the queue cannot see
 
-def test_tick_polls_waiting_jobs_through_the_queue_with_their_epoch(factory_main, settings_dir):
+def test_tick_polls_waiting_jobs_through_the_queue_with_their_epoch(factory_main, stubs):
     """A poll that skipped the queue would skip the epoch guard too."""
     job_id = factory_main.submit(SUBMIT)["job_id"]
     drain(factory_main)
@@ -348,7 +364,7 @@ def test_tick_recovers_a_completion_missed_while_the_factory_was_down(factory_ma
     assert jobs.read(turn_job)["stage"] == "run"
 
 
-def test_tick_reports_a_stuck_job_and_moves_nothing(factory_main, settings_dir):
+def test_tick_reports_a_stuck_job_and_moves_nothing(factory_main, stubs):
     """Republishing a stuck job blindly would rerun its stage, the duplicate the guard stops."""
     job_id = factory_main.submit(SUBMIT)["job_id"]  # published, never delivered
     old = {**jobs.read(job_id), "updated": 0}

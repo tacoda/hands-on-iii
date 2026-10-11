@@ -58,6 +58,13 @@ containers:
   approval-gate:
     worker: package://approval-gate
     version: "1.0.14"
+  worktree:
+    worker: package://worktree
+    version: "0.3.3"
+  github:
+    worker: package://github
+    version: "0.3.2"
+    env_file: [./.env]
   # A path:// worker runs from its own directory unless told otherwise, and
   # the ladder's run line names paths from the project root.
   ladder:

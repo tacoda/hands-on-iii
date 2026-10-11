@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -56,10 +57,12 @@ def fake_iii(tmp_path):
 
 @pytest.fixture(autouse=True)
 def no_real_engine(request, fake_iii, monkeypatch, tmp_path):
-    """turn.py asks the engine for ladder::gate before every send, so every test meets the fake."""
+    """turn.py asks the engine for ladder::gate before every send, so every test meets the fake.
+    And a stage that writes a job record writes it here, never into the checkout's state/."""
     if request.node.get_closest_marker("live"):
         return  # a live test must reach the real engine, or the fake accepts its send
     monkeypatch.setenv("PATH", f"{fake_iii['bin']}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("FACTORY_JOBS", str(tmp_path / "jobs"))
     monkeypatch.setenv("III_LOG", str(fake_iii["log"]))
     monkeypatch.setenv("LADDER_HOLDS", str(tmp_path / "holds"))
     for name in ("III_FAIL", "III_NO_LADDER", "III_LADDER_LIST"):
@@ -141,3 +144,53 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "live" in item.keywords:
             item.add_marker(skip)
+
+
+def git(cwd, *args) -> str:
+    done = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True)
+    return done.stdout
+
+
+class Shell:
+    """shell::exec for real git in a temporary repo, with the remote mocked.
+
+    `remote_head` is what ls-remote reports for the branch; `push_fails` makes
+    push exit 1. Nothing here ever reaches a network."""
+
+    def __init__(self):
+        self.remote_head, self.push_fails, self.ran = "", False, []
+
+    def __call__(self, payload):
+        args = [payload["command"], *payload.get("args", [])]
+        self.ran.append(args)
+        if args[:2] == ["git", "ls-remote"]:
+            line = f"{self.remote_head}\trefs/heads/x\n" if self.remote_head else ""
+            return {"exit_code": 0, "stdout": line, "stderr": ""}
+        if args[:2] == ["git", "push"]:
+            if self.push_fails:
+                return {"exit_code": 1, "stdout": "", "stderr": "fatal: could not read from remote"}
+            return {"exit_code": 0, "stdout": "", "stderr": ""}
+        done = subprocess.run(args, cwd=payload.get("cwd"), capture_output=True, text=True)
+        return {"exit_code": done.returncode, "stdout": done.stdout, "stderr": done.stderr}
+
+
+@pytest.fixture
+def worker():
+    """A bare stand-in worker for the stage actions, answering nothing until told."""
+    return FakeWorker("ws://127.0.0.1:49134", {"worker_name": "test"})
+
+
+@pytest.fixture
+def git_repo(tmp_path):
+    """A target repo with main at one commit and the job's branch checked out."""
+    repo = tmp_path / "target"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "config", "user.email", "factory@example.com")
+    git(repo, "config", "user.name", "Factory Test")
+    git(repo, "config", "commit.gpgsign", "false")
+    (repo / "README.md").write_text("# target\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "start")
+    git(repo, "checkout", "-q", "-b", "factory/document-the-ports-0123abcd")
+    return repo

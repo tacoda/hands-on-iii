@@ -3,7 +3,7 @@ id: no-secrets
 layer: team
 description: A credential never reaches a file
 why: A leaked key costs a rotation, an incident review, and whatever was done with it first.
-rung: [3]
+rung: [3, 4]
 policy: refuse
 escape: secret-ok
 ---

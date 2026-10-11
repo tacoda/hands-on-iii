@@ -17,6 +17,7 @@ from iii import InitOptions, register_worker
 import actions
 import graph
 import jobs
+import repos
 
 ROOT = Path(__file__).resolve().parents[3]
 TOPIC = "factory.stage"
@@ -62,11 +63,22 @@ def validate(payload: dict) -> dict:
     return given | ({"stub_refuse": refuse} if refuse else {})
 
 
+def title(spec: Path) -> str:
+    return next((line for line in spec.read_text().splitlines() if line.strip()), "")
+
+
 def submit(payload: dict) -> dict:
     given = validate(payload)
     first = graph.load()["first"]
     options = {"stub_refuse": given["stub_refuse"]} if "stub_refuse" in given else {}
-    job = jobs.new(given["spec"], given["repo"], first, **options)
+    spec, repo = (Path(given[k]) for k in ("spec", "repo"))
+    # settings/repos.toml is keyed by absolute path, and worktree::create needs one.
+    repo = str(repo if repo.is_absolute() else (ROOT / repo).resolve())
+    # A copy, so a rework weeks later rebuilds this job's environment, not
+    # the one the file describes by then.
+    settings = repos.resolve(repo)
+    job = jobs.new(given["spec"], repo, first, **options)
+    job |= {"settings": settings, "title": title(spec if spec.is_absolute() else ROOT / spec)}
     jobs.write(job)
     enqueue(job["id"], first, 0)
     return {"job_id": job["id"], "stage": first, "epoch": 0}
@@ -78,16 +90,26 @@ def step(message: dict) -> dict:
         return {"skipped": "the job is already past this message"}
     if (graph.load()["stages"].get(job["stage"]) or {}).get("action") == "turn":
         return actions.start_turn(job, call)  # the turn's end moves the job
-    return advance(job, actions.run_stage(job))
+    return advance(job, actions.run_stage(job, worker=worker))
 
 def advance(job: dict, result: dict) -> dict:
+    job = {**job, **(result.get("record") or {})}   # what the stage made, e.g. its worktree
     to, why = graph.next_stage(job, graph.load(), result)
     if to == job["stage"]:
         return {"stayed": to, "why": why}
-    moved = jobs.moved(job, to, why, revision=bool(result.get("refused")))
+    refused = bool(result.get("refused"))
+    # A refusal that fails the job starts no revision, so it is not counted as one.
+    moved = jobs.moved(job, to, why, revision=refused and to not in graph.TERMINAL)
+    moved.pop("brief", None)
+    if refused:
+        # Kept to compare with the next refusal, and sent as the next brief.
+        refusal = str(result.get("refusal") or "")
+        moved |= {"last_refusal": refusal, "brief": refusal}
     jobs.write(moved)                    # epoch + 1, session_id cleared
-    if to not in graph.TERMINAL:
-        enqueue(job["id"], to, moved["epoch"])
+    if to in graph.TERMINAL:
+        # Only a terminal stage gives the claim back; waiting still holds it.
+        return {"moved": to, "why": why, "teardown": actions.teardown(worker, moved)["did"]}
+    enqueue(job["id"], to, moved["epoch"])
     return {"moved": to, "why": why}
 
 

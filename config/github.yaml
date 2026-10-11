@@ -1,0 +1,9 @@
+id: github
+name: GitHub
+description: 'GitHub worker: the gh binary path, the GH_TOKEN credential injected into child gh processes, and the timeout / output-capture limits applied to every gh invocation.'
+value:
+  default_timeout_ms: 30000
+  gh_executable: ''
+  max_output_bytes: 1048576
+  max_timeout_ms: 120000
+  token: ''
