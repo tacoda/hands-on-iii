@@ -1,0 +1,39 @@
+startup_timeout: 90s
+stop_timeout: 10s
+
+engine:
+  url: ws://127.0.0.1:49134
+  workers:
+    configuration: {}
+    iii-worker-manager:
+      port: 49134
+    iii-stream:
+      host: 127.0.0.1
+      port: 3112
+
+containers:
+  harness:
+    worker: package://harness
+    version: "1.8.52"
+  session-manager:
+    worker: package://session-manager
+    version: "1.0.13"
+  context-manager:
+    worker: package://context-manager
+    version: "1.1.3"
+  llm-router:
+    worker: package://llm-router
+    version: "1.4.28"
+    env_file: [./.env]
+  provider-anthropic:
+    worker: package://provider-anthropic
+    version: "1.2.27"
+  console:
+    worker: package://console
+    version: "1.9.14"
+  state:
+    worker: package://state
+    version: "0.22.2"
+  queue:
+    worker: package://queue
+    version: "0.21.6"

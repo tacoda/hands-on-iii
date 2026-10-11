@@ -14,6 +14,13 @@ iii compose build   # optional: --up also fetches any missing worker
 iii compose --up
 ```
 
+Running a tag changes the working tree. The configuration worker writes each worker's settings file into `config/`, and git ignores the ones the repo does not track. Your own edits from a chapter's "Run it" stay behind too. So stop the engine before you move, then check out with `-f`. That drops your edits to tracked files and replaces any untracked file the next tag tracks:
+
+```shell
+iii trigger compose::stop
+git checkout -f ch08
+```
+
 To see one chapter's change and nothing else, diff two tags. For example, `git diff ch06 ch07` shows everything chapter 7 added.
 
 The iii CLI is the only operator surface. There is no Makefile. Every action is `iii trigger <function> --json '{...}'`, and when logic has to run first, a script in `scripts/` prints the JSON for you to pipe into `iii trigger`.
