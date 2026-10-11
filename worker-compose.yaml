@@ -61,6 +61,10 @@ containers:
   worktree:
     worker: package://worktree
     version: "0.3.3"
+  eval:
+    # Pinned exactly: a 0.x release may change its reports.
+    worker: package://eval
+    version: "0.2.19"
   github:
     worker: package://github
     version: "0.3.2"

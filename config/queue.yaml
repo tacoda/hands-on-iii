@@ -9,6 +9,15 @@ value:
       store_method: file_based
     name: builtin
   queue_configs:
+    eval-run:
+      backoff_ms: 1000
+      concurrency: 4
+      max_retries: 3
+      message_group_field: evaluation_id
+      poll_interval_ms: 100
+      redeliver_on_engine_restart: false
+      timeout_ms: 1800000
+      type: fifo
     harness-session-deletion:
       backoff_ms: 1000
       concurrency: 2

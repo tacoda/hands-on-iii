@@ -382,7 +382,9 @@ def test_the_factory_registers_as_factory(factory_main):
     assert factory_main.worker.options == {"worker_name": "factory"}
     assert set(factory_main.worker.functions) == {
         "factory::submit", "factory::step", "factory::turn_completed",
-        "factory::tick", "factory::jobs", "factory::answer", "factory::verdict_guard"}
+        "factory::tick", "factory::jobs", "factory::answer", "factory::verdict_guard",
+        "factory::grade", "factory::improve", "factory::proposals", "factory::accept",
+        "factory::wiring"}
 
 
 def test_the_bindings_are_the_ones_the_chapters_name(factory_main):

@@ -32,3 +32,7 @@ phases:
     model: gpt-5.2
     thinking_level: high
     functions: {allow: [discovery, read-only, running]}
+  improve:
+    # Reads the target repo and proposes; it edits nothing and runs nothing.
+    thinking_level: high
+    functions: {allow: [discovery, read-only]}
