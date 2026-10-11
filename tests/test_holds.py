@@ -43,3 +43,22 @@ def test_both_denials_carry_a_reason_the_model_can_act_on():
     assert "timed out" in ladder["content"][0]["text"]
     gate = holds.deny_gate_hold({"session_id": "s", "function_call_id": "c"}, TIMEOUT)
     assert gate["decision"] == "deny" and "timed out" in gate["reason"]
+
+def test_a_ladder_hold_and_its_expiry_reach_the_record(ladder_main, monkeypatch, tmp_path):
+    """The gate's holds reach the record through its events; a ladder hold has none,
+    so a record that waits for one never learns a rule asked, or that nobody answered."""
+    monkeypatch.setenv("LADDER_HOLDS", str(tmp_path / "holds"))
+    monkeypatch.setattr(ladder_main.ladder, "repo_permissions",
+                        lambda repo, w: {"decision": "hold", "policy": "ask", "reason": "asks"})
+    hook = {"session_id": "s_1", "turn_id": "t_1",
+            "metadata": {"oversight": "attended", "job_id": "j1", "fs_scope": {"root": ""}},
+            "call": {"id": "c_1", "function_id": "coder::create-file",
+                     "arguments": {"files": [{"path": "a.py", "content": "x"}]}}}
+    assert ladder_main.gate(hook) == {"decision": "hold"}
+    ladder_main.worker.answers["configuration::get"] = {"value": {"default_pending_timeout_ms": 1}}
+    monkeypatch.setattr(ladder_main.holds, "now_ms", lambda: 10 ** 13)
+    ladder_main.expire_holds()
+    entries = [p for f, p in ladder_main.worker.calls if f == "audit::append"]
+    assert [(e["kind"], e["subject"]) for e in entries] == [("approval.held", "j1"),
+                                                           ("approval.resolved", "j1")]
+    assert entries[1]["detail"]["outcome"] == "timeout"

@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 import contracts
+import cost
 import document
 import forge
 import graph as stage_graph
@@ -24,6 +25,7 @@ import charter  # noqa: E402  scripts/, the same charter chapter 5 builds
 import turn     # noqa: E402  scripts/, the same send chapter 3 builds
 
 GATE = "ladder::gate"
+GENESIS = "0" * 64
 ENDED = {"completed", "cancelled", "failed"}
 # The factory pushes with your credentials, so it is the request's author, and
 # its own comments are told apart by this instead.
@@ -461,12 +463,93 @@ def commit(worker, job: dict, settings: dict) -> dict:
     return push(worker, tree, remote, branch) if remote else {"ok": True, "committed": True}
 
 
+# ------------------------------------------------------------ the record
+
+def record(worker, kind: str, subject: str, detail: dict, actor: str = "factory") -> None:
+    """One entry, through the audit worker, which is the record's only writer.
+    Fails open, and never silently: a missing entry means nothing unless the
+    log shows no failure."""
+    if worker is None:
+        return
+    done = invoke(worker, "audit::append", {"kind": kind, "actor": actor,
+                                            "subject": subject, "detail": detail},
+                  timeout_ms=10000)
+    if not done["ok"]:
+        print(f"factory: {kind} not recorded: {done['error']}", flush=True)
+
+
+def entered(worker, job: dict, why: str) -> None:
+    """stage.entered after a real transition, with the new epoch."""
+    history = job.get("history") or [{}]
+    detail = {"stage": job["stage"], "epoch": job["epoch"],
+              "from": history[-1].get("from"), "why": why}
+    if job["stage"] == "blocked":
+        detail["reason"] = why
+    record(worker, "stage.entered", job["id"], detail)
+
+
+def record_head(worker) -> str:
+    """The last entry's hash, or genesis for an empty record, or "" when the
+    audit worker does not answer."""
+    if worker is None:
+        return ""
+    got = invoke(worker, "audit::summary", {"by": []}, timeout_ms=30000)
+    if not got["ok"] or "head" not in got["value"]:
+        print(f"factory: no record head: {got.get('error') or 'audit::summary gave none'}",
+              flush=True)
+        return ""
+    return str(got["value"]["head"] or GENESIS)
+
+
+def anchor(head: str) -> str:
+    # A copy of the chain's head outside state/, so a rebuilt chain disagrees
+    # with what the forge already holds. verify_audit.py --anchor checks it.
+    return f"record head: {head}" if head else "record head: unknown (the audit worker did not answer)"
+
+
+def model_of(job: dict, stage: dict, event: dict) -> str:
+    if event.get("model"):
+        return str(event["model"])
+    try:
+        return str(turn.settings.for_phase(phase_of(job, stage))["model"])
+    except (ValueError, KeyError):
+        return ""
+
+
+def metrics(worker, session: str | None) -> dict:
+    """The turn's token and cost totals across its session tree, or {}. No
+    answer leaves the turn to the router's figure, then unpriced."""
+    if worker is None or not session:
+        return {}
+    answer = invoke(worker, "harness::metrics", {"root_session_id": session}, timeout_ms=10000)
+    if not answer["ok"]:
+        print(f"factory: no metrics for {session}: {answer['error']}", flush=True)
+        return {}
+    totals = answer["value"].get("totals")
+    return totals if isinstance(totals, dict) else {}
+
+
+def costed(worker, job: dict, stage: dict, event: dict) -> dict:
+    """The job with this turn's cost and its source added, and the cost on the record."""
+    spent = cost.turn_cost(event, metrics(worker, job.get("session_id")),
+                           model_of(job, stage, event), turn.settings("pricing"))
+    spent["session_id"] = job.get("session_id")
+    record(worker, "turn.cost", job["id"], spent)
+    return {**job, "costs": [*(job.get("costs") or []), spent]}
+
+
+def budget(job: dict) -> str:
+    """Why this job may not start another stage, or "". Read on every check,
+    so a raised job_max_usd applies to the next stage."""
+    return cost.over_budget(job.get("costs") or [], turn.settings("pricing"))
+
+
 # ----------------------------------------------------- publish and watch
 
-def request_body(job: dict) -> str:
+def request_body(job: dict, head: str = "") -> str:
     # The document the phases built, unchanged: what was asked, planned,
-    # built, proved, and found.
-    return document.load(job)
+    # built, proved, and found. Then the record's head.
+    return f"{document.load(job).rstrip()}\n\n{anchor(head)}\n"
 
 
 def publish(worker, job: dict, settings: dict) -> dict:
@@ -481,12 +564,15 @@ def publish(worker, job: dict, settings: dict) -> dict:
     found = driver.found(job, answers)
     if found:
         return {"ok": True, "opened": False, "record": {"request": found}}
-    answers, failed = perform(worker, driver.open_calls(job, request_body(job)))
+    head = record_head(worker)
+    answers, failed = perform(worker, driver.open_calls(job, request_body(job, head)))
     if failed:
         return {"ok": False, "error": f"could not open a request: {failed['error']}"}
     request = driver.opened(job, answers)
     if request.get("error"):
         return {"ok": False, "error": f"could not open a request: {request['error']}"}
+    record(worker, "published", job["id"], {"request": request.get("url") or request.get("id"),
+                                            "forge": driver.name, "record_head": head})
     return {"ok": True, "opened": True, "record": {"request": request}}
 
 

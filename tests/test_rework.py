@@ -150,7 +150,8 @@ def test_each_phase_writes_its_section_and_the_document_is_the_request_body(flow
     finish(flow, job["id"], "Edit README.md only.")
     text = document.load(job)
     assert document.sections(text)["plan"] == "Edit README.md only."
-    assert actions.request_body(jobs.read(job["id"])) == text
+    head = "ab" * 32
+    assert actions.request_body(jobs.read(job["id"]), head) == f"{text.rstrip()}\n\nrecord head: {head}\n"
     assert jobs.read(job["id"])["stage"] == "run"
 
 

@@ -75,19 +75,34 @@ containers:
     version: "0.5.2"
     config_name: github  # 0.25 renames an unnamed entry to default-github
     env_file: [./.env]
+  audit:
+    worker: path://./workers/audit
+    # harness and approval-gate own the functions it observes.
+    start_after: [harness, approval-gate]
+    environment:
+      AUDIT_DIR: ${PWD}/state/audit
+    scripts:
+      # From the worker's own directory, where npm ci put tsx.
+      run: npx tsx src/index.ts
   # A path:// worker runs from its own directory unless told otherwise, and
   # the ladder's run line names paths from the project root.
   ladder:
     worker: path://./workers/ladder
-    start_after: [harness]
+    start_after: [harness, audit]
     environment:
       PYTHONUNBUFFERED: "1"
     scripts:
       run: .venv/bin/python workers/ladder/src/main.py
     working_dir: .
+  ladder-explain-ts:
+    worker: path://./workers/ladder-explain-ts
+    start_after: [harness]
+    scripts:
+      # From the worker's own directory, where npm ci put tsx.
+      run: npx tsx src/index.ts
   factory:
     worker: path://./workers/factory
-    start_after: [harness, queue, state]
+    start_after: [harness, queue, state, audit]
     environment:
       PYTHONUNBUFFERED: "1"
     scripts:

@@ -137,7 +137,11 @@ def run(rule, write: dict) -> list[dict]:
                                                   rule.script)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return list(module.check(write["path"], write["content"], {"rule": rule.id}) or [])
+    # The function id and the turn's root, so a predicate about where a call
+    # lands (record-is-read-only) can resolve a relative path.
+    context = {"rule": rule.id, "function_id": write.get("function_id", ""),
+               "root": write.get("root", "")}
+    return list(module.check(write["path"], write["content"], context) or [])
 
 
 def answer(policy: str, rule_id: str, rung: int, reason: str) -> dict:
