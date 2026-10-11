@@ -16,6 +16,12 @@ containers:
     worker: package://harness
     version: "1.9.7"
     config_name: harness  # 0.25 renames an unnamed entry to default-harness
+    working_dir: .
+    environment:
+      SETTINGS_DIR: ${SETTINGS_DIR:-./settings}
+    scripts:
+      pre_run: python3 scripts/config.py --check
+      pre_run_timeout: 10s
   session-manager:
     worker: package://session-manager
     version: "1.1.1"

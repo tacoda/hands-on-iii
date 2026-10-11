@@ -1,0 +1,11 @@
+id: state
+name: State
+description: State store settings — storage adapter (kv/redis), the state::on-changed event gate, max value size, and file-store flush cadence.
+metadata:
+  ui_form: state
+value:
+  adapter:
+    config:
+      file_path: ./data/state
+      store_method: file_based
+    name: kv
