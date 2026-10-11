@@ -75,8 +75,14 @@ def test_a_read_is_never_refused():
 
 
 def test_a_rule_not_carried_at_the_rung_asked_is_skipped():
-    """Rung 4 is not carried in chapter 7, so evaluate at rung 4 must not borrow rung 3."""
-    assert ladder.decide(shipped(), write(KEY), rung=4) == {"decision": "continue"}
+    """A rule that claims only rung 3 must not be borrowed by the delivery gate at rung 4."""
+    only_three = [rules.Rule(**{**vars(r), "rungs": (3,)}) for r in shipped()]
+    assert ladder.decide(only_three, write(KEY), rung=4) == {"decision": "continue"}
+
+
+def test_the_shipped_secret_rule_refuses_at_rung_4():
+    """A key that reached a file by a route rung 3 missed must still stop at delivery."""
+    assert ladder.decide(shipped(), write(KEY), rung=4)["decision"] == "deny"
 
 
 def test_a_warn_finding_allows_the_call_and_says_so():
@@ -163,7 +169,7 @@ def test_list_reports_rungs_withheld_and_refusals(ladder_main, tmp_path):
     repo = settings_json(tmp_path, {"deny": ["Bash"]})
     got = ladder_main.list_rules({"repo": repo})
     secrets, = [r for r in got["rules"] if r["id"] == "no-secrets"]
-    assert secrets["rungs"] == [3]
+    assert secrets["rungs"] == [3, 4]
     assert secrets["predicate"] == "no-secrets.py"
     assert "shell::exec" in got["withheld"]
 

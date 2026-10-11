@@ -1,4 +1,5 @@
-"""The ladder worker: rungs 2 and 3, in front of every tool call.
+"""The ladder worker: rungs 2 and 3 in front of every tool call, and rung 4
+for the factory's delivery gate through ladder::evaluate.
 
 Compose starts it (worker-compose.yaml) and injects III_URL. The decisions are
 in ladder.py and the rule files in rules.py; this file is the wiring. It serves

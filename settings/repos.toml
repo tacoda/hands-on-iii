@@ -1,0 +1,22 @@
+# One table per target repository, keyed by absolute path, because a job
+# names a directory and not a remote. The factory copies the resolved table
+# onto each job when it is created, so editing this file never changes a job
+# that already exists.
+#
+# Keys: forge ("local" or "github"), base, prepare (a shell string run with
+# sh -c in the new worktree), concurrency (live jobs at once, default 1),
+# branch_prefix, and slug ("owner/name", for forge = "github").
+
+[defaults]
+branch_prefix = "factory/"
+
+[repos."/Users/you/code/scratch"]
+forge   = "local"
+base    = "main"
+prepare = "./bin/setup"
+
+# A GitHub repository needs a slug, and GH_TOKEN in .env for the github worker:
+# [repos."/Users/you/code/service"]
+# forge = "github"
+# slug  = "you/repo"
+# base  = "main"

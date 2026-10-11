@@ -2,6 +2,7 @@
 node_modules/
 state/
 data/
+worktrees/
 __pycache__/
 .env
 dist/

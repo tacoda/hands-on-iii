@@ -1,0 +1,9 @@
+id: worktree
+name: Worktree
+description: 'Git worktree lifecycle settings: the managed worktree root, branch prefix, prune schedule and expiry, land queue name, retry bound, and git/test timeouts.'
+metadata:
+  ui_form: worktree
+value:
+  gates:
+    allow_force: true
+    allow_land: false

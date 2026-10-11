@@ -21,7 +21,7 @@ def predicate():
 def test_the_shipped_rule_loads_at_rung_3_with_its_predicate():
     """A rule that loaded as prose would look enforced on the page and refuse nothing."""
     loaded, = [r for r in rules.load() if r.id == "no-secrets"]
-    assert loaded.rungs == (3,)
+    assert loaded.rungs == (3, 4)
     assert loaded.refused == []
     assert loaded.script.endswith("rules/no-secrets.py")
     assert (loaded.layer, loaded.policy, loaded.escape) == ("team", "refuse", "secret-ok")
@@ -61,11 +61,18 @@ def test_ask_is_refused_anywhere_but_rung_3():
     assert 4 not in got.rungs
 
 
-def test_rung_4_is_refused_before_chapter_9():
-    """Nothing carries rung 4 until the delivery gate exists, so a claim of it is a lie."""
+def test_rung_4_is_carried_once_the_delivery_gate_exists():
+    """The delivery gate carries rung 4, so a refuse rule with a predicate may claim it."""
     got = rule("rung: [3, 4]\npolicy: refuse")
-    assert got.rungs == (3,)
-    assert any("rung 4 refused" in r and "chapter 9" in r for r in got.refused)
+    assert got.rungs == (3, 4)
+    assert got.refused == []
+
+
+def test_rung_4_without_a_predicate_is_refused():
+    """Rung 4 is mechanical, so a rule with no .py would look enforced and refuse nothing."""
+    got = rule("rung: [4]\npolicy: refuse", script="")
+    assert got.rungs == ()
+    assert any("rung 4 refused" in r and ".py" in r for r in got.refused)
 
 
 def test_an_unknown_policy_carries_nothing():

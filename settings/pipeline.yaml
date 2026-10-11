@@ -1,8 +1,12 @@
-first: plan
+first: prepare
 stages:
-  plan:    {action: stub, next: run}
-  run:     {action: stub, next: commit}
-  commit:  {action: stub, next: publish, on_refusal: {goto: run, max: 2}}
-  publish: {action: stub, next: waiting}
+  prepare: {action: prepare, next: plan}
+  plan:    {action: turn, next: run}
+  run:     {action: turn, next: commit}
+  commit:
+    action: commit
+    next: publish
+    on_refusal: {goto: run, max: 2, stop_when_identical: true}
+  publish: {action: publish, next: waiting}
   waiting: {action: watch, on_merge: landed, on_close: closed, on_comment: rework}
   rework:  {action: stub, next: run}
