@@ -21,3 +21,16 @@ def phases(settings_dir):
         "grants:\n  discovery: [engine::functions::list]\n"
         "phases:\n  plan: {}\n")
     return settings_dir / "phases.yaml"
+
+
+@pytest.fixture
+def fake_iii(tmp_path):
+    """A stand-in `iii` on PATH that logs its argv, so no test ever reaches an engine."""
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir()
+    log = tmp_path / "iii.log"
+    script = bin_dir / "iii"
+    script.write_text('#!/bin/sh\necho "$@" >> "$III_LOG"\n'
+                      'if [ -n "$III_FAIL" ]; then echo "engine down" >&2; exit 1; fi\n')
+    script.chmod(0o755)
+    return {"bin": bin_dir, "log": log}
