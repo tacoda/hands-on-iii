@@ -9,6 +9,7 @@ import sys
 import uuid
 from pathlib import Path
 
+import charter
 import settings
 
 REPO = "tests/fixtures/sample-repo"
@@ -33,18 +34,29 @@ def payload(prompt: str, phase: str, workspace: str) -> dict:
     send["options"]["metadata"]["job_id"] = job
     return {"session_id": f"s_{job}_{phase}_1", "message": prompt, **send}
 
+def build_send(args) -> dict:
+    # The shell worker does not run from this directory, so a relative root
+    # would name some other place.
+    workspace = str(Path(args.repo).resolve()) if args.repo else ""
+    send = payload(args.prompt, args.phase, workspace)
+    built = charter.for_repo(Path(args.repo))
+    for problem in built.problems:
+        print(f"charter: {problem}", file=sys.stderr)  # stdout is the JSON
+    if built.pieces:
+        send["options"]["system_prompt"] = built.text()
+    send["options"]["metadata"]["charter_pieces"] = len(built.pieces)
+    return send
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--phase", required=True)
     parser.add_argument("--repo", default=REPO)
     parser.add_argument("--prompt", required=True)
     args = parser.parse_args()
-    # The shell worker does not run from this directory, so a relative root
-    # would name some other place.
-    workspace = str(Path(args.repo).resolve()) if args.repo else ""
+    # Fail closed: with no repo there are no rules, so print no send at all.
     try:
-        print(json.dumps(payload(args.prompt, args.phase, workspace)))
-    except ValueError as error:
+        print(json.dumps(build_send(args)))
+    except (ValueError, OSError) as error:
         sys.exit(str(error))
 
 if __name__ == "__main__":
