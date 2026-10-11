@@ -21,6 +21,11 @@ def test_config_prints_each_value_with_where_it_came_from(settings_dir):
         "  model            claude-sonnet-5      [built-in]",
         "  thinking_level   medium               [built-in]",
         "  max_turns        20                   [settings]",
+        "  provider         anthropic            [built-in]",
+        "  functions        {'allow': []}        [built-in]",
+        "  max_cost_usd     None                 [built-in]",
+        "  max_total_tokens None                 [built-in]",
+        "  max_output_tokens None                 [built-in]",
     ]
 
 

@@ -14,6 +14,7 @@ value:
   default_max_turns: 500
   default_pending_timeout_ms: 1800000
   dispatch_timeout_ms: 300000
+  filesystem_boundary: workspace
   idem_ttl_secs: 86400
   max_children: 8
   max_depth: 3
