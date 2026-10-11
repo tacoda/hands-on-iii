@@ -14,13 +14,20 @@ iii compose build   # optional: --up also fetches any missing worker
 iii compose --up
 ```
 
+Running a tag changes the working tree. The configuration worker writes each worker's settings file into `config/`, and git ignores the ones the repo does not track. Your own edits from a chapter's "Run it" stay behind too. So stop the engine before you move, then check out with `-f`. That drops your edits to tracked files and replaces any untracked file the next tag tracks:
+
+```shell
+iii call compose::stop
+git checkout -f ch08
+```
+
 To see one chapter's change and nothing else, diff two tags. For example, `git diff ch06 ch07` shows everything chapter 7 added.
 
-The iii CLI is the only operator surface. There is no Makefile. Every action is `iii trigger <function> --json '{...}'`, and when logic has to run first, a script in `scripts/` prints the JSON for you to pipe into `iii trigger`.
+The iii CLI is the only operator surface. There is no Makefile. Every action is `iii call <function> --json '{...}'`, and when logic has to run first, a script in `scripts/` prints the JSON for you to pipe into `iii call`.
 
 ## Requirements
 
-- iii 0.25.0 or later. The book teaches 0.25's observers, and later releases should stay compatible.
+- iii 0.26.0 or later. The book teaches 0.26's observers, and later releases should stay compatible.
 - The `iii-sdk` package at the same version as the engine, for Python and for npm.
 - Python 3.11 or later.
 - Node 20 or later.
