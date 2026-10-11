@@ -382,10 +382,10 @@ def test_the_factory_registers_as_factory(factory_main):
     assert factory_main.worker.options == {"worker_name": "factory"}
     assert set(factory_main.worker.functions) == {
         "factory::submit", "factory::step", "factory::turn_completed",
-        "factory::tick", "factory::jobs"}
+        "factory::tick", "factory::jobs", "factory::answer", "factory::verdict_guard"}
 
 
-def test_the_bindings_are_the_three_the_chapter_names(factory_main):
+def test_the_bindings_are_the_ones_the_chapters_name(factory_main):
     """Without the subscriber, every job writes its first record and stops."""
     bound = {t["type"]: t for t in factory_main.worker.triggers}
     assert bound["durable:subscriber"] == {"type": "durable:subscriber",

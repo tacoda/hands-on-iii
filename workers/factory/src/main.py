@@ -15,6 +15,8 @@ from pathlib import Path
 from iii import InitOptions, register_worker
 
 import actions
+import contracts
+import document
 import graph
 import jobs
 import repos
@@ -25,6 +27,7 @@ TOPIC = "factory.stage"
 TICK = "0 * * * * *"
 STUCK_AFTER = 3600
 TURN_COMPLETED = "harness::turn-completed"  # hyphen: what the harness worker delivers on
+POST_GENERATE = "harness::hook::post-generate"
 
 
 def call(function_id: str, payload: dict, timeout_ms: int = 30000):
@@ -88,8 +91,12 @@ def step(message: dict) -> dict:
     job = jobs.read(message["job_id"])
     if job is None or (job["stage"], job["epoch"]) != (message["stage"], message["epoch"]):
         return {"skipped": "the job is already past this message"}
-    if (graph.load()["stages"].get(job["stage"]) or {}).get("action") == "turn":
-        return actions.start_turn(job, call)  # the turn's end moves the job
+    stage = graph.load()["stages"].get(job["stage"]) or {}
+    if stage.get("action") == "turn":
+        started = actions.start_turn(job, call, worker, stage)  # the turn's end moves the job
+        if started.get("failed"):
+            return advance(jobs.read(job["id"]) or job, started)
+        return started
     return advance(job, actions.run_stage(job, worker=worker))
 
 def advance(job: dict, result: dict) -> dict:
@@ -100,7 +107,8 @@ def advance(job: dict, result: dict) -> dict:
     refused = bool(result.get("refused"))
     # A refusal that fails the job starts no revision, so it is not counted as one.
     moved = jobs.moved(job, to, why, revision=refused and to not in graph.TERMINAL)
-    moved.pop("brief", None)
+    if "brief" not in (result.get("record") or {}):
+        moved.pop("brief", None)         # a brief belongs to the one move that set it
     if refused:
         # Kept to compare with the next refusal, and sent as the next brief.
         refusal = str(result.get("refusal") or "")
@@ -122,7 +130,27 @@ def turn_completed(event: dict) -> dict:
     job = jobs.read(job_id)
     if job is None or job.get("session_id") != event["session_id"]:
         return {"skipped": "a stale completion"}
-    return advance(job, actions.from_turn(event))
+    stage = graph.load()["stages"].get(job["stage"]) or {}
+    return advance(job, actions.finish_turn(worker, job, stage, actions.from_turn(event)))
+
+
+def answer(payload: dict) -> dict:
+    """A person's reply to a blocked job: into the document, then back to run."""
+    payload = payload if isinstance(payload, dict) else {}
+    text = payload.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("factory::answer takes {\"job_id\": ..., \"text\": ...}")
+    job = jobs.read(payload.get("job_id"))
+    if job is None:
+        raise ValueError(f"no job {payload.get('job_id')!r}")
+    if (graph.load()["stages"].get(job["stage"]) or {}).get("action") != "hold":
+        raise ValueError(f"job {job['id'][:8]} is at {job['stage']}, not blocked")
+    # The working copy, never specs/: the checks read the answer from here.
+    written = document.put(document.load(job), "answer",
+                           f"{job.get('question') or 'The job stopped.'}\n\n"
+                           f"Answer: {text.strip()}")
+    document.save(job, written)
+    return advance({**job, "question": None}, {"answered": text.strip()})
 
 
 def tick(payload: dict | None = None) -> dict:
@@ -148,6 +176,8 @@ def tick(payload: dict | None = None) -> dict:
                          "result": status.get("result"), "reason": status.get("result_error")}
                 turn_completed(event)    # a missed completion, one minute late
                 report["recovered"].append(job["id"])
+        elif stage.get("action") == "hold":
+            continue                     # blocked: a person owes it an answer, not a retry
         elif job["stage"] not in graph.TERMINAL and now - job["updated"] > STUCK_AFTER:
             report["stuck"].append(job["id"])  # a person decides; republishing would rerun it
     return report
@@ -158,6 +188,7 @@ def listed(payload: dict | None = None) -> dict:
     rows = [{"id": j["id"], "stage": j["stage"], "epoch": j["epoch"],
              "revisions": j.get("revisions", 0), "steps": len(j.get("history", [])),
              "session_id": j.get("session_id"), "spec": j["spec"],
+             "reason": (j.get("history") or [{}])[-1].get("why", ""),
              "stuck": j["stage"] not in graph.TERMINAL and now - j["updated"] > STUCK_AFTER}
             for j in jobs.all_jobs()]
     return {"jobs": sorted(rows, key=lambda r: not r["stuck"])}  # stuck first, then newest
@@ -174,6 +205,10 @@ worker.register_function("factory::tick", tick,
                          description="The reconciler. Bound to cron, once a minute.")
 worker.register_function("factory::jobs", listed,
                          description="Every job, stuck ones first, then newest first.")
+worker.register_function("factory::answer", answer,
+                         description="Answer a blocked job: {job_id, text}. Moves it back to run.")
+worker.register_function("factory::verdict_guard", contracts.verdict_guard,
+                         description="Internal: grades prove and review. Bound to post-generate.")
 # Without this binding nothing consumes factory.stage, and every job writes its
 # first record and stops, which looks exactly like a job still working.
 # The queue worker's canonical key is `queue`; `topic` is its alias.
@@ -185,8 +220,12 @@ worker.register_trigger({"type": TURN_COMPLETED, "function_id": "factory::turn_c
                          "config": {}})
 worker.register_trigger({"type": "cron", "function_id": "factory::tick",
                          "config": {"expression": TICK}})
+# post-generate observes and cannot refuse, which suits a guard that grades.
+worker.register_trigger({"type": POST_GENERATE, "function_id": "factory::verdict_guard",
+                         "config": {"timeout_ms": 5000, "on_error": "fail_open"}})
 
 if __name__ == "__main__":
     print(f"factory: {TOPIC} -> factory::step, {TURN_COMPLETED} -> factory::turn_completed")
     print(f"factory: {TICK} -> factory::tick, jobs in {jobs.folder()}")
+    print(f"factory: {POST_GENERATE} -> factory::verdict_guard")
     threading.Event().wait()

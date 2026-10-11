@@ -1,12 +1,41 @@
 first: prepare
 stages:
   prepare: {action: prepare, next: plan}
-  plan:    {action: turn, next: run}
-  run:     {action: turn, next: commit}
+  plan:
+    action: turn
+    phase: plan
+    requires: [spec]
+    produces: [plan]
+    next: run
+  run:
+    action: turn
+    phase: run
+    requires: [spec]           # not plan: a revision or a rework skips plan
+    produces: [work]
+    on_interrupt: blocked
+    next: prove
+  prove:
+    action: turn
+    phase: prove
+    requires: [work]
+    produces: [proof]
+    contract: proven
+    reset_worktree: true
+    next: review
+  review:
+    action: turn
+    phase: review
+    requires: [work]
+    produces: [review]
+    contract: verdict
+    reset_worktree: true
+    on_blocker: blocked
+    next: commit
   commit:
     action: commit
     next: publish
     on_refusal: {goto: run, max: 2, stop_when_identical: true}
   publish: {action: publish, next: waiting}
   waiting: {action: watch, on_merge: landed, on_close: closed, on_comment: rework}
-  rework:  {action: stub, next: run}
+  rework:  {action: rework, next: run}
+  blocked: {action: hold, on_answer: run}
