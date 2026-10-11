@@ -1,5 +1,6 @@
 """The ladder worker: rungs 2 and 3 in front of every tool call, and rung 4
-for the factory's delivery gate through ladder::evaluate.
+for the factory's delivery gate through ladder::evaluate. Every refusal goes
+to the record through audit::append before it is returned.
 
 Compose starts it (worker-compose.yaml) and injects III_URL. The decisions are
 in ladder.py and the rule files in rules.py; this file is the wiring. It serves
@@ -13,6 +14,7 @@ Settle it with harness::function::resolve: action execute allows the call, and
 action deliver with is_error true and a content denies it.
 """
 
+import functools
 import os
 import threading
 
@@ -23,10 +25,70 @@ import ladder
 import rules
 
 
+def refusal_entry(payload: dict, answer: dict) -> dict:
+    """The audit entry for a deny. Names the call, never its content: the
+    content is where a credential would hide."""
+    meta, call = payload.get("metadata") or {}, payload.get("call") or {}
+    notes = answer.get("annotations") or {}
+    if call:                                             # the hook, at rung 3
+        subject = meta.get("job_id") or payload.get("session_id")
+        detail = {"function_id": call.get("function_id"), "function_call_id": call.get("id"),
+                  "session_id": payload.get("session_id"), "rung": 3}
+    else:                                                # ladder::evaluate, rung 4 from the factory
+        subject = payload.get("job_id") or payload.get("repo")
+        detail = {"function_id": "ladder::evaluate", "path": payload.get("path"),
+                  "rung": int(payload.get("rung", 3))}
+    detail["rung"] = notes.get("ladder.rung", detail["rung"])
+    detail["reason"] = str(answer.get("reason") or "")[:400]
+    return {"kind": "ladder.refused", "actor": str(notes.get("ladder.rule") or "ladder"),
+            "subject": str(subject or ""),
+            "detail": {k: v for k, v in detail.items() if v not in (None, "")}}
+
+
+def record(entry: dict, what: str) -> None:
+    """One append to the record. A failed append prints, and the decision stands."""
+    try:
+        worker.trigger({"function_id": "audit::append", "timeout_ms": 10000, "payload": entry})
+    except Exception as exc:
+        print(f"ladder: {what} not recorded: {type(exc).__name__}: {exc}", flush=True)
+
+
+def hold_entry(hold: dict, outcome: str = "", reason: str = "") -> dict:
+    """The record's entry for a ladder hold, in the gate's own kinds, so chapter 12
+    reads both kinds of hold the same way. Names the call, never its content."""
+    detail = {"function_call_id": hold.get("function_call_id"), "function_id": hold.get("function_id"),
+              "session_id": hold.get("session_id"), "held_by": "ladder"}
+    if outcome:
+        detail |= {"outcome": outcome, "reason": reason[:400]}
+    return {"kind": "approval.resolved" if outcome else "approval.held",
+            "actor": "ladder::expire_holds" if outcome else "ladder",
+            "subject": str(hold.get("job_id") or hold.get("session_id") or ""),
+            "detail": {k: v for k, v in detail.items() if v not in (None, "")}}
+
+
+def records_refusals(handler):
+    """Append every deny to the record before it is returned. The harness
+    worker skips post-trigger for a denied call, so nothing else would. A
+    failed append still denies, and prints the failure."""
+    @functools.wraps(handler)
+    def wrapped(payload: dict) -> dict:
+        answer = handler(payload)
+        if answer.get("decision") == "deny":
+            try:
+                worker.trigger({"function_id": "audit::append", "timeout_ms": 10000,
+                                "payload": refusal_entry(payload, answer)})
+            except Exception as exc:
+                print(f"ladder: refusal not recorded: {type(exc).__name__}: {exc}", flush=True)
+        return answer
+    return wrapped
+
+
+@records_refusals
 def gate(payload: dict) -> dict:
     meta = payload.get("metadata") or {}
     repo = str((meta.get("fs_scope") or {}).get("root") or "")
     write = ladder.write_of(payload.get("call") or {})
+    write["root"] = repo      # so a predicate can resolve a relative path
     try:
         answer = (ladder.repo_permissions(repo, write)                      # rung 2
                   or ladder.decide(rules.load(repo), write, rung=3, run=ladder.run))
@@ -36,12 +98,13 @@ def gate(payload: dict) -> dict:
     if answer.get("policy") != "ask":
         return answer                                    # continue, or a refusal
     if meta.get("oversight") != "dark":
-        holds.remember(payload)                          # so the timer can find it
+        record(hold_entry(holds.remember(payload)), "hold")  # the timer finds the file
         return {"decision": "hold"}                      # parked for a person
     return {"decision": "deny", "reason": answer["reason"] + " Oversight is dark, so "
             "nobody can answer. Leave this unchanged and say why in your reply."}
 
 
+@records_refusals
 def evaluate(payload: dict) -> dict:
     # The same decide as the hook, so the two cannot answer differently.
     write = {"function_id": "", "path": str(payload.get("path") or ""),
@@ -87,6 +150,7 @@ def expire_holds(payload: dict | None = None) -> dict:
         try:
             call("harness::function::resolve", holds.deny_ladder_hold(hold, timeout))
             expired.append(hold["function_call_id"])
+            record(hold_entry(hold, "timeout", holds.reason(timeout)), "expiry")
             holds.forget(hold)
         except Exception as exc:
             # A person already answered it, or the engine is busy. Retry until twice the timeout.

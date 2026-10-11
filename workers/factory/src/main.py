@@ -92,12 +92,27 @@ def step(message: dict) -> dict:
     if job is None or (job["stage"], job["epoch"]) != (message["stage"], message["epoch"]):
         return {"skipped": "the job is already past this message"}
     stage = graph.load()["stages"].get(job["stage"]) or {}
+    over = actions.budget(job) if stage.get("action") != "hold" else ""
+    if over:
+        return blocked(job, over)       # before the stage starts, so nothing more is spent
     if stage.get("action") == "turn":
         started = actions.start_turn(job, call, worker, stage)  # the turn's end moves the job
         if started.get("failed"):
             return advance(jobs.read(job["id"]) or job, started)
         return started
     return advance(job, actions.run_stage(job, worker=worker))
+
+def blocked(job: dict, why: str) -> dict:
+    """Out of budget: a person decides, through factory::answer."""
+    to = "blocked" if "blocked" in graph.load()["stages"] else "failed"
+    moved = jobs.moved(job, to, why) | {"question": why}
+    jobs.write(moved)
+    actions.entered(worker, moved, why)
+    if to in graph.TERMINAL:
+        return {"moved": to, "why": why, "teardown": actions.teardown(worker, moved)["did"]}
+    enqueue(job["id"], to, moved["epoch"])
+    return {"moved": to, "why": why}
+
 
 def advance(job: dict, result: dict) -> dict:
     job = {**job, **(result.get("record") or {})}   # what the stage made, e.g. its worktree
@@ -114,6 +129,7 @@ def advance(job: dict, result: dict) -> dict:
         refusal = str(result.get("refusal") or "")
         moved |= {"last_refusal": refusal, "brief": refusal}
     jobs.write(moved)                    # epoch + 1, session_id cleared
+    actions.entered(worker, moved, why)
     if to in graph.TERMINAL:
         # Only a terminal stage gives the claim back; waiting still holds it.
         return {"moved": to, "why": why, "teardown": actions.teardown(worker, moved)["did"]}
@@ -131,6 +147,8 @@ def turn_completed(event: dict) -> dict:
     if job is None or job.get("session_id") != event["session_id"]:
         return {"skipped": "a stale completion"}
     stage = graph.load()["stages"].get(job["stage"]) or {}
+    job = actions.costed(worker, job, stage, event)
+    jobs.write(job)                      # the cost lands even if the job stays put
     return advance(job, actions.finish_turn(worker, job, stage, actions.from_turn(event)))
 
 

@@ -65,11 +65,20 @@ containers:
     worker: package://github
     version: "0.3.2"
     env_file: [./.env]
+  audit:
+    worker: path://./workers/audit
+    # harness and approval-gate own the trigger types it binds.
+    start_after: [harness, approval-gate]
+    environment:
+      AUDIT_DIR: ${PWD}/state/audit
+    scripts:
+      # From the worker's own directory, where npm ci put tsx.
+      run: npx tsx src/index.ts
   # A path:// worker runs from its own directory unless told otherwise, and
   # the ladder's run line names paths from the project root.
   ladder:
     worker: path://./workers/ladder
-    start_after: [harness]
+    start_after: [harness, audit]
     environment:
       PYTHONUNBUFFERED: "1"
     scripts:
@@ -83,7 +92,7 @@ containers:
       run: npx tsx src/index.ts
   factory:
     worker: path://./workers/factory
-    start_after: [harness, queue, state]
+    start_after: [harness, queue, state, audit]
     environment:
       PYTHONUNBUFFERED: "1"
     scripts:

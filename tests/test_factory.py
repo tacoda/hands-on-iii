@@ -405,7 +405,7 @@ def test_compose_pins_queue_and_cron_and_persists_the_queue():
     assert (compose["cron"]["worker"], compose["cron"]["version"]) == ("package://cron", "0.21.10")
     factory = compose["factory"]
     assert factory["worker"] == "path://./workers/factory"
-    assert set(factory["start_after"]) == {"harness", "queue", "state"}
+    assert {"harness", "queue", "state"} <= set(factory["start_after"])
     assert factory["scripts"]["run"] == ".venv/bin/python workers/factory/src/main.py"
     value = yaml.safe_load((ROOT / "config" / "queue.yaml").read_text())["value"]
     assert value["adapter"]["name"] == "builtin"
