@@ -1,0 +1,34 @@
+grants:
+  discovery: [engine::functions::list, engine::functions::info]
+  read-only: [coder::info, coder::read-file, coder::search,
+              coder::list-folder, coder::tree]
+  editing:   [coder::create-file, coder::update-file,
+              coder::delete-file, coder::move]
+  running:   [shell::exec, shell::exec_bg, shell::status, shell::list]
+
+defaults:
+  model: claude-sonnet-5
+  thinking_level: medium
+  max_turns: 50
+  functions: {allow: [discovery, read-only]}
+
+phases:
+  plan:
+    model: claude-opus-5
+    thinking_level: high
+    max_cost_usd: 1.00
+    # The harness worker reserves input plus this many output tokens per generation.
+    max_output_tokens: 16000
+    max_total_tokens: 500000
+    functions: {allow: [discovery, read-only]}
+  run:
+    provider: deepseek
+    model: deepseek-flash
+    functions: {allow: [discovery, read-only, editing, running]}
+  prove:
+    functions: {allow: [discovery, "coder::*", running], deny: [editing]}
+  review:
+    provider: openai
+    model: gpt-5.2
+    thinking_level: high
+    functions: {allow: [discovery, read-only, running]}

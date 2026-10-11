@@ -11,13 +11,19 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
-DEFAULTS = {"model": "claude-sonnet-5", "thinking_level": "medium", "max_turns": 50}
+DEFAULTS = {"model": "claude-sonnet-5", "thinking_level": "medium", "max_turns": 50,
+            "provider": "anthropic", "functions": {"allow": []},
+            "max_cost_usd": None, "max_total_tokens": None,
+            "max_output_tokens": None}
 
-def declared() -> dict:
+def load() -> dict:
     try:
-        return (yaml.safe_load(path().read_text()) or {}).get("defaults") or {}
+        return yaml.safe_load(path().read_text()) or {}
     except FileNotFoundError:
         return {}
+
+def declared() -> dict:
+    return load().get("defaults") or {}
 
 def effective() -> dict[str, tuple[object, str]]:
     given = declared()
@@ -34,3 +40,29 @@ def check() -> None:
     unknown = sorted(set(declared()) - set(DEFAULTS))
     if unknown:
         raise ValueError(f"unknown keys {unknown}")
+
+def expand(names: list[str], grants: dict) -> list[str]:
+    # The harness worker takes flat lists of function ids, so group names stop here.
+    ids: list[str] = []
+    for name in names:
+        if name == "*" or "::" in name:
+            found = [name]
+        elif name in grants:
+            found = grants[name]
+        else:
+            # Granting nothing for a misspelt group would look like a working phase.
+            raise ValueError(f"unknown grant group {name!r}; known: {sorted(grants)}")
+        ids += [fid for fid in found if fid not in ids]
+    return ids
+
+def for_phase(phase: str, given: dict | None = None) -> dict:
+    given = load() if given is None else given
+    phases = given.get("phases") or {}
+    if phase not in phases:
+        raise ValueError(f"unknown phase {phase!r}; known: {sorted(phases)}")
+    # One level deep. A phase's `functions` replaces the default whole.
+    settings = {**DEFAULTS, **(given.get("defaults") or {}), **phases[phase]}
+    fn, grants = settings["functions"], given.get("grants") or {}
+    settings["functions"] = {k: expand(fn.get(k) or [], grants)
+                             for k in ("allow", "deny")}
+    return settings

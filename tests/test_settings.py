@@ -10,6 +10,11 @@ def test_an_empty_settings_directory_runs_on_the_built_in_defaults(settings_dir)
         "model": ("claude-sonnet-5", "built-in"),
         "thinking_level": ("medium", "built-in"),
         "max_turns": (50, "built-in"),
+        "provider": ("anthropic", "built-in"),
+        "functions": ({"allow": []}, "built-in"),
+        "max_cost_usd": (None, "built-in"),
+        "max_total_tokens": (None, "built-in"),
+        "max_output_tokens": (None, "built-in"),
     }
 
 
