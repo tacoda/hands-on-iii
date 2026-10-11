@@ -1,0 +1,12 @@
+default: supervised
+
+# Each level names the approval-gate mode it sets.
+levels:
+  manual: manual       # every call asks, except the reads in `rules`
+  attended: auto       # the same, plus a session's always-allow list
+  supervised: full     # the gate holds nothing; a rule's `ask` holds (ch 7)
+  dark: full           # nothing holds; a rule's `ask` refuses (ch 7)
+
+# A stage can name its own level. Chapter 10's factory reads this block.
+# stages:
+#   run: attended

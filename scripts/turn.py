@@ -1,10 +1,14 @@
 """Print one harness::send payload as JSON. It sends nothing:
 
     iii trigger harness::send --json "$(python3 scripts/turn.py --phase plan --prompt 'say hello')"
+
+It does set the session's approval-gate mode first, because a mode set after
+the send does not reach the calls the turn has already made.
 """
 
 import argparse
 import json
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -47,17 +51,51 @@ def build_send(args) -> dict:
     send["options"]["metadata"]["charter_pieces"] = len(built.pieces)
     return send
 
+ASKS = {"manual", "attended"}  # levels that promise a person will answer
+
+
+def oversight(asked=None) -> tuple[str, str]:
+    given = settings("oversight")
+    levels = given.get("levels") or {"supervised": "full"}
+    level = str(asked or given.get("default") or "").strip().lower()
+    if level not in levels:
+        level = "supervised"
+    return level, levels.get(level, "full")
+
+
+def set_mode(session_id: str, level: str, mode: str) -> None:
+    body = json.dumps({"session_id": session_id, "mode": mode})
+    try:
+        done = subprocess.run(["iii", "trigger", "approval::set-mode", "--json", body],
+                              capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        # No CLI on PATH or no engine answering is a failed set-mode, not a crash.
+        done = subprocess.CompletedProcess([], 1, "", str(error))
+    print(f"oversight: {level} ({mode}) on {session_id}", file=sys.stderr)
+    if done.returncode != 0:
+        print(f"oversight: set-mode failed: {done.stderr.strip()}", file=sys.stderr)
+        if level in ASKS:
+            sys.exit(1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--phase", required=True)
     parser.add_argument("--repo", default=REPO)
     parser.add_argument("--prompt", required=True)
+    parser.add_argument("--oversight", help="manual, attended, supervised, or dark")
     args = parser.parse_args()
     # Fail closed: with no repo there are no rules, so print no send at all.
     try:
-        print(json.dumps(build_send(args)))
+        send = build_send(args)
     except (ValueError, OSError) as error:
         sys.exit(str(error))
+    level, mode = oversight(args.oversight)
+    # metadata arrives verbatim at every hook, so chapter 7's ladder reads the
+    # level here and keeps no session state.
+    send["options"]["metadata"]["oversight"] = level
+    set_mode(send["session_id"], level, mode)
+    print(json.dumps(send))
 
 if __name__ == "__main__":
     main()

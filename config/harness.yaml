@@ -22,4 +22,4 @@ value:
   router_timeout_ms: 320000
   session_timeout_ms: 10000
   stream_coalesce_ms: 150
-  sweep_expression: 0 0 0 * * *
+  sweep_expression: 0 * * * * *

@@ -1,0 +1,10 @@
+id: approval-gate
+name: Approval Gate
+description: 'Policy and decision surface settings: the deployment approval defaults (permission mode for new sessions and the auto-mode trust seed) and the agent permission rules.'
+value:
+  default_mode: full
+  rules:
+  - engine::functions::list
+  - engine::functions::info
+  - coder::read-file
+  - coder::search

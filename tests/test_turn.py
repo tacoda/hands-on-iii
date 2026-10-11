@@ -14,6 +14,14 @@ SESSION = re.compile(r"^s_([0-9a-f]{8})_([a-z]+)_1$")
 ROOT = "/work/sample-repo"
 
 
+@pytest.fixture(autouse=True)
+def no_engine(fake_iii, monkeypatch):
+    """turn.py calls `iii trigger approval::set-mode`, so every run here meets the fake."""
+    monkeypatch.setenv("PATH", f"{fake_iii['bin']}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("III_LOG", str(fake_iii["log"]))
+    monkeypatch.delenv("III_FAIL", raising=False)
+
+
 def run(settings_dir, *args):
     env = {**os.environ, "SETTINGS_DIR": str(settings_dir)}
     return subprocess.run([sys.executable, str(SCRIPT), *args], env=env,

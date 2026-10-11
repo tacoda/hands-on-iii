@@ -5,6 +5,8 @@ and `effective()` says which, so no default is a magic number.
 """
 
 import os
+import sys
+import types
 from pathlib import Path
 
 import yaml
@@ -19,6 +21,13 @@ DEFAULTS = {"model": "claude-sonnet-5", "thinking_level": "medium", "max_turns":
 def load() -> dict:
     try:
         return yaml.safe_load(path().read_text()) or {}
+    except FileNotFoundError:
+        return {}
+
+def read(name: str) -> dict:
+    # A missing file is the built-in default, so deleting one never stops a turn.
+    try:
+        return yaml.safe_load((path().parent / f"{name}.yaml").read_text()) or {}
     except FileNotFoundError:
         return {}
 
@@ -66,3 +75,11 @@ def for_phase(phase: str, given: dict | None = None) -> dict:
     settings["functions"] = {k: expand(fn.get(k) or [], grants)
                              for k in ("allow", "deny")}
     return settings
+
+class _Settings(types.ModuleType):
+    # turn.py reads a named file as `settings("oversight")` and a phase as
+    # `settings.for_phase(...)`, so the one module answers both spellings.
+    def __call__(self, name: str) -> dict:
+        return read(name)
+
+sys.modules[__name__].__class__ = _Settings
