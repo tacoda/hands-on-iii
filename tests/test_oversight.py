@@ -109,8 +109,9 @@ def test_the_send_carries_the_level_and_the_mode_is_set_for_its_session(fake_iii
     assert out.returncode == 0, out.stderr
     send = json.loads(out.stdout)
     assert send["options"]["metadata"]["oversight"] == "attended"
-    logged = fake_iii["log"].read_text()
-    assert logged.startswith("trigger approval::set-mode --json")
+    # Chapter 7's ladder questions come first in the log, so find the set-mode line.
+    logged = next(line for line in fake_iii["log"].read_text().splitlines()
+                  if line.startswith("trigger approval::set-mode --json"))
     assert json.loads(logged.split("--json ", 1)[1]) == {"session_id": send["session_id"],
                                                          "mode": "auto"}
     assert f"oversight: attended (auto) on {send['session_id']}" in out.stderr

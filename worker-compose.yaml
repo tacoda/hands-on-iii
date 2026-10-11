@@ -58,3 +58,19 @@ containers:
   approval-gate:
     worker: package://approval-gate
     version: "1.0.14"
+  # A path:// worker runs from its own directory unless told otherwise, and
+  # the ladder's run line names paths from the project root.
+  ladder:
+    worker: path://./workers/ladder
+    start_after: [harness]
+    environment:
+      PYTHONUNBUFFERED: "1"
+    scripts:
+      run: .venv/bin/python workers/ladder/src/main.py
+    working_dir: .
+  ladder-explain-ts:
+    worker: path://./workers/ladder-explain-ts
+    start_after: [harness]
+    scripts:
+      # From the worker's own directory, where npm ci put tsx.
+      run: npx tsx src/index.ts

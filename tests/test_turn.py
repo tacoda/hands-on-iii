@@ -124,3 +124,54 @@ def test_an_unknown_phase_prints_no_payload_and_names_the_known_ones(phases):
 def test_the_root_rides_only_in_metadata_never_as_options_fs_scope(phases):
     """The harness worker drops options.fs_scope silently, so a root there leaves the turn unscoped."""
     assert "fs_scope" not in turn.send_options("plan", ROOT)["options"]
+
+
+def test_no_payload_is_printed_when_the_ladder_gate_is_not_registered(phases, monkeypatch):
+    """A dead ladder has no binding, so the harness would run every call with no rule in front of it."""
+    monkeypatch.setenv("III_NO_LADDER", "1")
+    out = run(phases.parent, "--phase", "plan", "--prompt", "Create leak.py.")
+    assert out.returncode != 0
+    assert out.stdout == ""
+    assert "ladder::gate is not registered" in out.stderr
+
+
+def test_the_presence_check_asks_engine_functions_info_for_the_gate(monkeypatch):
+    """Asking for the wrong id, or reading a not-found as found, would pass a dead ladder."""
+    seen = []
+    def engine(argv, **kwargs):
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 1, "", "function_not_found: ladder::gate")
+    monkeypatch.setattr(turn.subprocess, "run", engine)
+    assert turn.ladder_registered() is False
+    argv, = seen
+    assert argv[:4] == ["iii", "trigger", "engine::functions::info", "--json"]
+    assert json.loads(argv[4]) == {"function_id": "ladder::gate"}
+    found = '{"function_id": "ladder::gate", "worker_name": "ladder"}'
+    monkeypatch.setattr(turn.subprocess, "run",
+                        lambda argv, **k: subprocess.CompletedProcess(argv, 0, found, ""))
+    assert turn.ladder_registered() is True
+
+
+def test_a_missing_iii_cli_counts_as_no_ladder(monkeypatch):
+    """A traceback here would print nothing useful; no answer must read as no gate."""
+    def missing(*a, **k):
+        raise FileNotFoundError("iii")
+    monkeypatch.setattr(turn.subprocess, "run", missing)
+    assert turn.ladder_registered() is False
+
+
+def test_the_repos_withheld_functions_join_the_phase_deny_list(phases, monkeypatch):
+    """Rung 1 from the ladder's one list; a second copy in phases.yaml would drift."""
+    monkeypatch.setenv("III_LADDER_LIST", '{"rules": [], "withheld": ["shell::exec", "shell::exec_bg"]}')
+    out = run(phases.parent, "--phase", "plan", "--prompt", "p")
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout)["options"]["functions"]["deny"] == ["shell::exec", "shell::exec_bg"]
+
+
+def test_no_payload_is_printed_when_the_ladder_does_not_list(phases, monkeypatch):
+    """Sending without the withheld list would grant what the repo itself denied."""
+    monkeypatch.setenv("III_LADDER_LIST", "not json")
+    out = run(phases.parent, "--phase", "plan", "--prompt", "p")
+    assert out.returncode != 0
+    assert out.stdout == ""
+    assert "ladder::list did not answer" in out.stderr

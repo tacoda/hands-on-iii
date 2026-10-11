@@ -1,0 +1,19 @@
+{
+  "name": "ladder-explain-ts",
+  "version": "0.7.0",
+  "private": true,
+  "type": "module",
+  "description": "Serves ladder::explain, by calling the Python ladder's ladder::list over the bus.",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "test": "tsx --test src/explain.test.ts"
+  },
+  "dependencies": {
+    "iii-sdk": "0.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  }
+}
