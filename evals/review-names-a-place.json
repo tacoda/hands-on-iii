@@ -1,0 +1,9 @@
+{
+  "dimension": "prompt",
+  "model": {"model": "claude-sonnet-5", "provider": "anthropic"},
+  "control": {"label": "review.md at HEAD"},
+  "treatment": {"label": "review.md in the working tree"},
+  "input": "\n\nThe diff:\n+    total = float(price) * qty    # app.py:9\n",
+  "evaluator": {"function_id": "factory::grade",
+    "arguments": {"contract": "verdict", "equals": "concerns"}}
+}

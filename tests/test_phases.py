@@ -107,7 +107,7 @@ def test_an_unknown_group_raises_instead_of_granting_nothing():
 
 def test_an_unknown_phase_raises_and_names_the_known_ones():
     """`reveiw` on the bare defaults would run and look like it worked."""
-    with pytest.raises(ValueError, match=r"unknown phase 'reveiw'; known: \['plan', 'prove', 'review', 'run'\]"):
+    with pytest.raises(ValueError, match=r"unknown phase 'reveiw'; known: \['improve', 'plan', 'prove', 'review', 'run'\]"):
         settings.for_phase("reveiw", REAL)
 
 

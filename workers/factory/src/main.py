@@ -19,6 +19,7 @@ import actions
 import contracts
 import document
 import graph
+import improve
 import jobs
 import repos
 
@@ -144,7 +145,8 @@ def turn_completed(event: dict) -> dict:
         return {}                        # the turn has not ended
     job_id = jobs.parse_session(event.get("session_id"))
     if job_id is None:
-        return {}                        # another worker's turn on this engine
+        # An improve run's turn, or {} for another worker's turn on this engine.
+        return improve.completed(ROOT, event)
     job = jobs.read(job_id)
     if job is None or job.get("session_id") != event["session_id"]:
         return {"skipped": "a stale completion"}
@@ -214,6 +216,23 @@ def listed(payload: dict | None = None) -> dict:
     return {"jobs": sorted(rows, key=lambda r: not r["stuck"])}  # stuck first, then newest
 
 
+def improved(payload: dict) -> dict:
+    return improve.start(call, ROOT, (payload or {}).get("repo"), jobs.all_jobs())
+
+
+def proposals(payload: dict | None = None) -> dict:
+    return improve.listed(ROOT, (payload or {}).get("run_id"))
+
+
+def accepted(payload: dict) -> dict:
+    payload = payload if isinstance(payload, dict) else {}
+    return improve.accept(ROOT, payload.get("run_id"), payload.get("index"))
+
+
+def wiring(payload: dict | None = None) -> dict:
+    return improve.wiring(call, ROOT, str((payload or {}).get("repo") or ""))
+
+
 if __name__ == "__main__":
     # A failed start must end the process. The SDK's threads would keep it alive,
     # and compose would go on reporting the worker ready.
@@ -234,6 +253,16 @@ worker.register_function("factory::answer", answer,
                          description="Answer a blocked job: {job_id, text}. Moves it back to run.")
 worker.register_function("factory::verdict_guard", contracts.verdict_guard,
                          description="Internal: grades prove and review. Observes on-post-generate.")
+worker.register_function("factory::grade", improve.grade,
+                         description="The evaluator scripts/eval.sh calls: a reply graded by a contract.")
+worker.register_function("factory::improve", improved,
+                         description="Read the record for {repo}; one turn only if it holds trouble.")
+worker.register_function("factory::proposals", proposals,
+                         description="Every improve run and its staged proposals, newest first.")
+worker.register_function("factory::accept", accepted,
+                         description="{run_id, index}: write that proposal as a spec. Applies nothing.")
+worker.register_function("factory::wiring", wiring,
+                         description="Every ladder, factory, and audit function is observed or called.")
 # Without this binding nothing consumes factory.stage, and every job writes its
 # first record and stops, which looks exactly like a job still working.
 # A fixed id: a restarted factory takes over the queue it left, unacked stages included.
