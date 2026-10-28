@@ -67,6 +67,27 @@ def ladder_registered(call) -> bool:
     return bool(info) and GATE in str(info) and "function_not_found" not in str(info)
 
 
+def harness_of(phase: str) -> str:
+    """Which harness worker runs this phase: the stock one, or chapter 14's planner."""
+    try:
+        return str(turn.settings.for_phase(phase).get("harness") or "harness")
+    except ValueError:
+        return "harness"                 # an improve run's phase, or one phases.yaml lacks
+
+
+def send_turn(call, phase: str, send: dict) -> dict:
+    # Callers name a function id, never a worker, so the swap is this one branch.
+    if harness_of(phase) == "planner":
+        return call("planner::turn", send) or {}
+    return call("harness::send", send) or {}
+
+
+def turn_status(call, phase: str, session_id: str) -> dict:
+    if harness_of(phase) == "planner":
+        return call("planner::status", {"session_id": session_id}) or {}
+    return call("harness::status", {"session_id": session_id}) or {}
+
+
 def phase_of(job: dict, stage: dict | None = None) -> str:
     stage = stage if stage is not None else stage_graph.load()["stages"].get(job["stage"]) or {}
     return str(stage.get("phase") or job["stage"])
@@ -151,7 +172,7 @@ def start_turn(job: dict, call, worker=None, stage: dict | None = None) -> dict:
     send, level, mode = build_send(job, session, call, phase)
     # A mode set after the send does not reach the calls the turn already made.
     call("approval::set-mode", {"session_id": session, "mode": mode})
-    answer = call("harness::send", send) or {}
+    answer = send_turn(call, phase, send)
     return {"started": session, "oversight": level,
             "deduplicated": bool(answer.get("deduplicated"))}
 

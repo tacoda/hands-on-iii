@@ -102,9 +102,18 @@ containers:
       run: npx tsx src/index.ts
   factory:
     worker: path://./workers/factory
-    start_after: [harness, queue, state, audit]
+    start_after: [harness, queue, state, audit, planner]
     environment:
       PYTHONUNBUFFERED: "1"
     scripts:
       run: .venv/bin/python workers/factory/src/main.py
+    working_dir: .
+  planner:
+    worker: path://./workers/planner
+    start_after: [queue, state, ladder, approval-gate]
+    env_file: [./.env.planner]
+    environment:
+      PYTHONUNBUFFERED: "1"
+    scripts:
+      run: .venv/bin/python workers/planner/src/main.py
     working_dir: .

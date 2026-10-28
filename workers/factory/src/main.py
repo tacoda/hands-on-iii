@@ -189,7 +189,7 @@ def tick(payload: dict | None = None) -> dict:
             report["polled"].append(job["id"])
         elif stage.get("action") == "turn" and job.get("session_id"):
             try:
-                status = call("harness::status", {"session_id": job["session_id"]}) or {}
+                status = actions.turn_status(call, actions.phase_of(job, stage), job["session_id"])
             except Exception:
                 status = {}              # one unanswered status must not stop the rest
             if status.get("status") in actions.ENDED:
@@ -198,6 +198,11 @@ def tick(payload: dict | None = None) -> dict:
                          "result": status.get("result"), "reason": status.get("result_error")}
                 turn_completed(event)    # a missed completion, one minute late
                 report["recovered"].append(job["id"])
+            elif status.get("status") == "stalled":
+                # planner::status only reports: a person checks the console, then republishes.
+                if job.get("stalled_session") != job["session_id"]:
+                    jobs.write({**job, "stalled_session": job["session_id"]})
+                report["stuck"].append(job["id"])
         elif stage.get("action") == "hold":
             continue                     # blocked: a person owes it an answer, not a retry
         elif job["stage"] not in graph.TERMINAL and now - job["updated"] > STUCK_AFTER:
@@ -211,7 +216,8 @@ def listed(payload: dict | None = None) -> dict:
              "revisions": j.get("revisions", 0), "steps": len(j.get("history", [])),
              "session_id": j.get("session_id"), "spec": j["spec"],
              "reason": (j.get("history") or [{}])[-1].get("why", ""),
-             "stuck": j["stage"] not in graph.TERMINAL and now - j["updated"] > STUCK_AFTER}
+             "stuck": (j["stage"] not in graph.TERMINAL and now - j["updated"] > STUCK_AFTER)
+                      or bool(j.get("session_id")) and j.get("stalled_session") == j.get("session_id")}
             for j in jobs.all_jobs()]
     return {"jobs": sorted(rows, key=lambda r: not r["stuck"])}  # stuck first, then newest
 
@@ -280,6 +286,11 @@ clock = worker.observe(
     "factory::tick",
 )
 clock.ready(timeout=60)
+# Chapter 14's harness announces its own ends. The source must exist, so compose
+# starts the planner first, and a missing one stops the factory here.
+completions = worker.observe({"function_id": "planner::turn-completed", "capture": ["input"]},
+                             "factory::turn_completed")
+completions.ready(timeout=60)
 # on-post-generate observes and cannot refuse, which suits a guard that grades.
 guard = worker.observe(
     {"function_id": POST_GENERATE, "args": {"timeout_ms": 5000, "on_error": "fail_open"}},

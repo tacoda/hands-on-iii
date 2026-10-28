@@ -34,7 +34,7 @@ FIELDS = ("lane", "kind", "target", "action", "evidence", "why")
 # wiring check takes this list's word. It is a claim, and you can read it.
 OPERATOR = ("factory::submit", "factory::jobs", "factory::answer", "factory::improve",
             "factory::proposals", "factory::accept", "factory::wiring",
-            "audit::verify", "ladder::explain")
+            "audit::verify", "ladder::explain", "planner::status")
 
 
 # ------------------------------------------------------------- the grader
@@ -408,8 +408,10 @@ def target_id(observer: dict) -> str:
 
 
 def unwired(functions: list[dict], observers: list[dict], called: set[str],
-            mine: tuple = ("ladder::", "factory::", "audit::")) -> list[str]:
-    reached = {target_id(o) for o in observers} | called
+            mine: tuple = ("ladder::", "factory::", "audit::", "planner::")) -> list[str]:
+    # An observer reaches both ends: its target, and an event nothing calls by name.
+    reached = ({target_id(o) for o in observers}
+               | {str(o.get("function_id") or "") for o in observers} | called)
     return sorted(f["function_id"] for f in functions
                   if f["function_id"].startswith(mine) and f["function_id"] not in reached)
 

@@ -14,6 +14,8 @@ defaults:
 
 phases:
   plan:
+    # Chapter 14: this phase runs on your own harness worker, not the stock one.
+    harness: planner
     model: claude-opus-5
     thinking_level: high
     max_cost_usd: 1.00

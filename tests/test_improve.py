@@ -320,6 +320,7 @@ def test_every_function_the_three_workers_register_is_reached(factory_main, ladd
 def test_an_unbound_function_fails_the_wiring_and_is_named(factory_main, ladder_main):
     """Run it's break: delete the turn-completed observer and every unit test still passes."""
     functions, observers = registered(factory_main, ladder_main)
+    # From chapter 14 it has a second way in, the observer on the planner's end event.
     observers = [o for o in observers if o["target"] != "factory::turn_completed"]
     got = improve.report(functions, observers, improve.called_ids(ROOT), [])
     assert got["ok"] is False and got["unwired"] == ["factory::turn_completed"]

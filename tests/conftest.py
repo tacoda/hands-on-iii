@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "workers" / "ladder" / "src"))
 sys.path.insert(0, str(ROOT / "workers" / "factory" / "src"))
+sys.path.insert(0, str(ROOT / "workers" / "planner" / "src"))
 
 
 @pytest.fixture
@@ -128,7 +129,26 @@ def factory_main(monkeypatch, tmp_path):
         "approval::set-mode": {"ok": True},
         "harness::send": lambda p: {"session_id": p["session_id"], "turn_id": "t_1",
                                     "accepted": True},
+        "planner::turn": lambda p: {"session_id": p["session_id"], "accepted": True},
     })
+    return module
+
+
+@pytest.fixture
+def planner_main(monkeypatch, tmp_path):
+    """workers/planner/src/main.py against a stand-in `iii`, with turns in a temporary folder."""
+    fake = types.ModuleType("iii")
+    fake.InitOptions = lambda **kwargs: kwargs
+    fake.CallAction = types.SimpleNamespace(Void=lambda: "void")
+    fake.register_worker = FakeWorker
+    monkeypatch.setitem(sys.modules, "iii", fake)
+    monkeypatch.setenv("III_URL", "ws://127.0.0.1:49134")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-a-key")
+    monkeypatch.setenv("PLANNER_TURNS", str(tmp_path / "turns"))
+    path = ROOT / "workers" / "planner" / "src" / "main.py"
+    spec = importlib.util.spec_from_file_location("planner_main", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
     return module
 
 

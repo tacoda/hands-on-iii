@@ -157,5 +157,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
               "audit::record_call");
   iii.observe({ function_id: "approval::on-pending-resolved", capture: ["input"] },
               "audit::record_call");
+  // Chapter 14's harness has no on-post-call hook. It publishes each call instead.
+  // No ready(): the audit worker starts first, so this stays pending until the planner is up.
+  iii.observe({ function_id: "planner::tool-called", capture: ["input"] }, "audit::record_call");
   console.log(`audit: one writer for ${LOG}`);
 }
