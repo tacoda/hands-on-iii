@@ -295,11 +295,11 @@ def test_compose_pins_worktree_and_github_and_landing_is_off():
         "package://worktree", "0.4.3")
     assert (compose["github"]["worker"], compose["github"]["version"]) == (
         "package://github", "0.5.2")
-    assert compose["github"]["env_file"] == ["./.env"]
+    assert compose["github"]["env_file"] == ["./.env.forge"]   # chapter 15 split the keys
     gates = yaml.safe_load((ROOT / "config" / "worktree.yaml").read_text())["value"]["gates"]
     assert gates["allow_land"] is False
     assert yaml.safe_load((ROOT / "config" / "github.yaml").read_text())["value"]["token"] == ""
-    assert "GH_TOKEN=\n" in (ROOT / ".env.example").read_text()
+    assert "GH_TOKEN=\n" in (ROOT / ".env.forge.example").read_text()
 
 
 def test_the_factory_never_calls_land():

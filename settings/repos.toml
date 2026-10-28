@@ -15,7 +15,7 @@ forge   = "local"
 base    = "main"
 prepare = "./bin/setup"
 
-# A GitHub repository needs a slug, and GH_TOKEN in .env for the github worker:
+# A GitHub repository needs a slug, and GH_TOKEN in .env.forge for the github worker:
 # [repos."/Users/you/code/service"]
 # forge = "github"
 # slug  = "you/repo"

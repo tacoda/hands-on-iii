@@ -1,0 +1,8 @@
+factory.example.com {
+	handle /ping {
+		respond "ok" 200
+	}
+	handle {
+		respond 404
+	}
+}

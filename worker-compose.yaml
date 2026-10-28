@@ -10,6 +10,7 @@ engine:
   workers:
     configuration: {}
     iii-worker-manager:
+      host: 127.0.0.1
       port: 49134
     iii-stream:
       host: 127.0.0.1
@@ -35,7 +36,7 @@ containers:
   llm-router:
     worker: package://llm-router
     version: "1.5.3"
-    env_file: [./.env]
+    env_file: [./.env.models]
   provider-anthropic:
     worker: package://provider-anthropic
     version: "1.3.2"
@@ -74,7 +75,7 @@ containers:
     worker: package://github
     version: "0.5.2"
     config_name: github  # 0.25 renames an unnamed entry to default-github
-    env_file: [./.env]
+    env_file: [./.env.forge]
   audit:
     worker: path://./workers/audit
     # harness and approval-gate own the functions it observes.

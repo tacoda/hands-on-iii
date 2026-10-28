@@ -5,6 +5,8 @@ data/
 worktrees/
 __pycache__/
 .env
+.env.models
+.env.forge
 .env.planner
 dist/
 # The configuration worker writes every worker's settings file here. The repo

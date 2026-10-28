@@ -1,0 +1,30 @@
+[Unit]
+Description=hands-on-iii factory
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=hands-on-iii
+Group=hands-on-iii
+WorkingDirectory=/srv/hands-on-iii/app
+# systemd sets no PWD, and worker-compose.yaml reads ${PWD}.
+Environment=PWD=/srv/hands-on-iii/app
+# Compose scripts run python3, which must be the venv's, as on your laptop.
+Environment=PATH=/srv/hands-on-iii/app/.venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/iii compose --up
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/srv/hands-on-iii/app/data /srv/hands-on-iii/app/state /srv/hands-on-iii/app/config /srv/hands-on-iii/app/specs /srv/hands-on-iii/app/.iii /srv/hands-on-iii/app/worktrees /srv/hands-on-iii/.iii /srv/hands-on-iii/repos
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
