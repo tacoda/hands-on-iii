@@ -103,9 +103,11 @@ containers:
       run: npx tsx src/index.ts
   factory:
     worker: path://./workers/factory
-    start_after: [harness, queue, state, audit, planner]
+    start_after: [harness, queue, state, audit, planner, http, ladder, approval-gate]
+    env_file: [./.env.web]                          # WEB_PASSWORD_HASH
     environment:
       PYTHONUNBUFFERED: "1"
+      FACTORY_REPOS: tests/fixtures/sample-repo     # comma-separated; the server lists its own
     scripts:
       run: .venv/bin/python workers/factory/src/main.py
     working_dir: .
@@ -118,3 +120,11 @@ containers:
     scripts:
       run: .venv/bin/python workers/planner/src/main.py
     working_dir: .
+  http:
+    worker: package://http
+    version: "0.23.2"
+    config_override:         # startup values, like the console's port (chapter 3)
+      host: 127.0.0.1
+      port: 3111
+      cors:
+        allowed_origins: ["https://factory.example.com"]

@@ -16,7 +16,8 @@ def test_the_worker_registers_under_its_compose_key(ladder_main):
     """Compose waits for a worker named like its container key; a name that differs fails at its deadline."""
     assert ladder_main.worker.options == {"worker_name": "ladder"}
     assert set(ladder_main.worker.functions) == {"ladder::gate", "ladder::evaluate", "ladder::list",
-                                                 "ladder::expire_holds"}
+                                                 "ladder::expire_holds", "ladder::holds",
+                                                 "ladder::resolve"}
 
 
 def test_the_hold_timer_runs_every_minute(ladder_main):

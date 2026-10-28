@@ -1,8 +1,36 @@
 factory.example.com {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Content-Security-Policy "default-src 'self'"
+	}
+
+	@private not path /ping
+	basic_auth @private {
+		operator $2a$14$[the hash from caddy hash-password]
+	}
+
 	handle /ping {
 		respond "ok" 200
 	}
+
+	@post_not_json {
+		method POST
+		not header Content-Type application/json*
+	}
+	handle /api/* {
+		respond @post_not_json 415
+		request_body {
+			max_size 64KB
+		}
+		reverse_proxy 127.0.0.1:3111
+	}
+
 	handle {
-		respond 404
+		root * /srv/hands-on-iii/app/web/dist
+		try_files {path} /index.html
+		file_server
 	}
 }

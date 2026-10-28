@@ -385,7 +385,10 @@ def test_the_factory_registers_as_factory(factory_main):
         "factory::submit", "factory::step", "factory::turn_completed",
         "factory::tick", "factory::jobs", "factory::answer", "factory::verdict_guard",
         "factory::grade", "factory::improve", "factory::proposals", "factory::accept",
-        "factory::wiring"}
+        "factory::wiring",
+        # Chapter 16's routes, one per method and path.
+        "factory::http-jobs", "factory::http-resolve", "factory::http-holds", "factory::http-job",
+        "factory::http-submit", "factory::http-health"}
 
 
 def test_the_observers_are_the_ones_the_chapters_name(factory_main):

@@ -1,0 +1,11 @@
+body { font-family: system-ui, sans-serif; margin: 0 auto; padding: 1rem; max-width: 60rem; }
+nav { display: flex; gap: 1rem; margin-bottom: 1rem; }
+nav a.active { font-weight: bold; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border-bottom: 1px solid #ccc; padding: 0.25rem 0.5rem; text-align: left; vertical-align: top; }
+tr.stuck td { background: #fff3cd; }
+pre { white-space: pre-wrap; margin: 0; }
+li { margin-bottom: 1rem; }
+textarea { display: block; width: 100%; min-height: 3rem; margin: 0.25rem 0; }
+label { display: block; margin-bottom: 0.5rem; }
+[role="alert"] { color: #b00020; }

@@ -54,7 +54,8 @@ def record(entry: dict, what: str) -> None:
         print(f"ladder: {what} not recorded: {type(exc).__name__}: {exc}", flush=True)
 
 
-def hold_entry(hold: dict, outcome: str = "", reason: str = "") -> dict:
+def hold_entry(hold: dict, outcome: str = "", reason: str = "",
+               actor: str = "ladder::expire_holds") -> dict:
     """The record's entry for a ladder hold, in the gate's own kinds, so chapter 12
     reads both kinds of hold the same way. Names the call, never its content."""
     detail = {"function_call_id": hold.get("function_call_id"), "function_id": hold.get("function_id"),
@@ -62,7 +63,7 @@ def hold_entry(hold: dict, outcome: str = "", reason: str = "") -> dict:
     if outcome:
         detail |= {"outcome": outcome, "reason": reason[:400]}
     return {"kind": "approval.resolved" if outcome else "approval.held",
-            "actor": "ladder::expire_holds" if outcome else "ladder",
+            "actor": actor if outcome else "ladder",
             "subject": str(hold.get("job_id") or hold.get("session_id") or ""),
             "detail": {k: v for k, v in detail.items() if v not in (None, "")}}
 
@@ -102,7 +103,9 @@ def gate(payload: dict) -> dict:
     if answer.get("policy") != "ask":
         return answer                                    # continue, or a refusal
     if meta.get("oversight") != "dark":
-        record(hold_entry(holds.remember(payload)), "hold")  # the timer finds the file
+        held = holds.remember(payload, rule_id=str((answer.get("annotations") or {}).get("ladder.rule") or ""),
+                              reason=str(answer.get("reason") or ""))
+        record(hold_entry(held), "hold")                 # the timer finds the file
         return {"decision": "hold"}                      # parked for a person
     return {"decision": "deny", "reason": answer["reason"] + " Oversight is dark, so "
             "nobody can answer. Leave this unchanged and say why in your reply."}
@@ -151,16 +154,19 @@ def expire_holds(payload: dict | None = None) -> dict:
         timeout = holds.DEFAULT_TIMEOUT_MS
     now, expired = holds.now_ms(), []
     for hold in holds.stale(holds.recorded(), now, timeout, "held_at"):
-        try:
-            call("harness::function::resolve", holds.deny_ladder_hold(hold, timeout))
-            expired.append(hold["function_call_id"])
-            record(hold_entry(hold, "timeout", holds.reason(timeout)), "expiry")
-            holds.forget(hold)
-        except Exception as exc:
-            # A person already answered it, or the engine is busy. Retry until twice the timeout.
-            if now - hold["held_at"] >= 2 * timeout:
+        with holds.LOCK:                 # ladder::resolve takes the same lock
+            if holds.find(hold["function_call_id"]) is None:
+                continue                 # a person answered it while this tick ran
+            try:
+                call("harness::function::resolve", holds.deny_ladder_hold(hold, timeout))
+                expired.append(hold["function_call_id"])
+                record(hold_entry(hold, "timeout", holds.reason(timeout)), "expiry")
                 holds.forget(hold)
-            print(f"ladder: hold {hold['function_call_id']} not expired: {exc}", flush=True)
+            except Exception as exc:
+                # A person already answered it, or the engine is busy. Retry until twice the timeout.
+                if now - hold["held_at"] >= 2 * timeout:
+                    holds.forget(hold)
+                print(f"ladder: hold {hold['function_call_id']} not expired: {exc}", flush=True)
     try:
         pending = call("approval::list-pending", {}).get("pending") or []
     except Exception:
@@ -173,6 +179,25 @@ def expire_holds(payload: dict | None = None) -> dict:
             print(f"ladder: gate hold {held['function_call_id']} not expired: {exc}", flush=True)
     return {"timeout_ms": timeout, "expired": expired}
 
+def resolve(payload: dict) -> dict:
+    """ladder::resolve: a person's answer to a ladder hold. Settle it, forget it, record it."""
+    decision = (payload or {}).get("decision")
+    if decision not in ("allow", "deny"):
+        raise ValueError("decision is allow or deny")
+    with holds.LOCK:                     # ladder::expire_holds takes the same lock
+        hold = holds.find(payload.get("function_call_id"))
+        if hold is None:
+            return {"resolved": False}   # unknown or already answered, like approval::resolve
+        call("harness::function::resolve", holds.answer(hold, decision, payload.get("reason", "")))
+        holds.forget(hold)
+    record(hold_entry(hold, decision, str(payload.get("reason") or ""), actor="a person"), "answer")
+    return {"resolved": True}
+
+
+def listed_holds(_payload=None) -> dict:
+    return {"holds": holds.recorded()}
+
+
 PRE_CALL = "harness::hook::on-pre-call"  # hyphens; tests/test_hooks.py asserts it
 if __name__ == "__main__":
     # A failed start must end the process. The SDK's threads would keep it alive,
@@ -184,6 +209,8 @@ worker.register_function("ladder::gate", gate)
 worker.register_function("ladder::evaluate", evaluate)
 worker.register_function("ladder::list", list_rules)
 worker.register_function("ladder::expire_holds", expire_holds)
+worker.register_function("ladder::holds", listed_holds)
+worker.register_function("ladder::resolve", resolve)
 hook = worker.observe(
     {"function_id": PRE_CALL, "args": {"priority": 60, "timeout_ms": 15000, "on_error": "fail_closed"}},
     "ladder::gate",

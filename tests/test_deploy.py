@@ -23,14 +23,16 @@ def test_each_key_goes_only_to_the_worker_that_reads_it():
     assert containers["llm-router"]["env_file"] == ["./.env.models"]
     assert containers["github"]["env_file"] == ["./.env.forge"]
     assert containers["planner"]["env_file"] == ["./.env.planner"]
+    assert containers["factory"]["env_file"] == ["./.env.web"]      # chapter 16: the hash only
     holders = {k for k, c in containers.items() if c.get("env_file")}
-    assert holders == {"llm-router", "github", "planner"}
+    assert holders == {"llm-router", "github", "planner", "factory"}
 
 
 def test_the_templates_hold_names_and_no_values():
     for name, keys in ((".env.models.example", {"ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"}),
                        (".env.forge.example", {"GH_TOKEN"}),
-                       (".env.planner.example", {"ANTHROPIC_API_KEY"})):
+                       (".env.planner.example", {"ANTHROPIC_API_KEY"}),
+                       (".env.web.example", {"WEB_PASSWORD_HASH"})):
         lines = [l for l in (ROOT / name).read_text().splitlines() if l and not l.startswith("#")]
         assert {l.split("=")[0] for l in lines} == keys
         assert all(l.endswith("=") for l in lines)
@@ -38,7 +40,7 @@ def test_the_templates_hold_names_and_no_values():
 
 def test_git_ignores_every_real_env_file():
     ignored = (ROOT / ".gitignore").read_text().splitlines()
-    assert {".env", ".env.models", ".env.forge", ".env.planner"} <= set(ignored)
+    assert {".env", ".env.models", ".env.forge", ".env.planner", ".env.web", ".env.local"} <= set(ignored)
 
 
 def test_the_worker_manager_listens_on_loopback_only():
@@ -75,11 +77,13 @@ def test_the_unit_bounds_a_crash_loop():
     assert unit()["Unit"]["StartLimitIntervalSec"] == "300"
 
 
-def test_the_door_answers_ping_and_nothing_else():
-    """Nothing behind Caddy reaches iii yet: the console stays private on 3113."""
+def test_the_door_opens_ping_and_locks_everything_else():
+    """Chapter 16: the page and the API behind the password; the console stays private."""
     caddy = (ROOT / "deploy" / "Caddyfile").read_text()
-    assert 'respond "ok" 200' in caddy and "respond 404" in caddy
-    assert not re.search(r"reverse_proxy|3113|49134", caddy)
+    assert "@private not path /ping\n" in caddy and "basic_auth @private" in caddy
+    assert "respond @post_not_json 415" in caddy and "max_size 64KB" in caddy
+    assert re.findall(r"reverse_proxy (\S+)", caddy) == ["127.0.0.1:3111"]
+    assert not re.search(r"3113|49134", caddy)
 
 
 def test_the_backup_doc_keeps_its_archive_private():

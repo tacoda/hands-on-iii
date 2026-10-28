@@ -8,6 +8,8 @@ __pycache__/
 .env.models
 .env.forge
 .env.planner
+.env.web
+.env.local
 dist/
 # The configuration worker writes every worker's settings file here. The repo
 # tracks only the files this build sets, and git add -f adds a new one.

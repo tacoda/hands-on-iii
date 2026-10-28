@@ -22,6 +22,7 @@ import graph
 import improve
 import jobs
 import repos
+import web
 
 ROOT = Path(__file__).resolve().parents[3]
 TOPIC = "factory.stage"
@@ -291,6 +292,10 @@ clock.ready(timeout=60)
 completions = worker.observe({"function_id": "planner::turn-completed", "capture": ["input"]},
                              "factory::turn_completed")
 completions.ready(timeout=60)
+# Chapter 16's page: one route per function, each observing http::on-request.
+# A route taken twice or still pending stops the factory here, with the reason.
+for handle in web.register(worker, call):
+    handle.ready(timeout=60)
 # on-post-generate observes and cannot refuse, which suits a guard that grades.
 guard = worker.observe(
     {"function_id": POST_GENERATE, "args": {"timeout_ms": 5000, "on_error": "fail_open"}},

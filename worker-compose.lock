@@ -212,6 +212,53 @@ containers:
         x86_64-unknown-linux-musl:
           sha256: 6373a8f578bf2fedd09f85837b4446c8f878a898d59dd07251b0ca96f863f050
           url: https://api.workers.iii.dev/download/harness/1.9.7/x86_64-unknown-linux-musl
+  http:
+    worker: package://http
+    requested: 0.23.2
+    resolved:
+      name: http
+      version: 0.23.2
+      type: binary
+      artifacts:
+        aarch64-apple-darwin:
+          sha256: fa85312793c807dac838833e1758fd8182b3e9d8149296f0c377c7950d80530d
+          url: https://api.workers.iii.dev/download/http/0.23.2/aarch64-apple-darwin
+        aarch64-pc-windows-msvc:
+          sha256: fb1eac4e3d448b2de3e57e4aad6794223e2547ac13c6dc3563a9ea4435c55c99
+          url: https://api.workers.iii.dev/download/http/0.23.2/aarch64-pc-windows-msvc
+        aarch64-unknown-linux-gnu:
+          sha256: d23e6fb80cfb89548325deae7dfb46d409dee87dee7fb1b74c36776509097ab7
+          url: https://api.workers.iii.dev/download/http/0.23.2/aarch64-unknown-linux-gnu
+        armv7-unknown-linux-gnueabihf:
+          sha256: 1803ebdcfec9910efb5067b689f0fc8a3d322d1327750f1a5c9cde1a8af036e4
+          url: https://api.workers.iii.dev/download/http/0.23.2/armv7-unknown-linux-gnueabihf
+        x86_64-apple-darwin:
+          sha256: dd2a1c4ee0676bd9f7c5cfbd45f08d1fe9175ceb3c62529293ef0f82efba3cd6
+          url: https://api.workers.iii.dev/download/http/0.23.2/x86_64-apple-darwin
+        x86_64-pc-windows-msvc:
+          sha256: 0a07c164ba0f6cc7040fb02ec150190c4acdb91921d6ceed161fb3ffbdfd2412
+          url: https://api.workers.iii.dev/download/http/0.23.2/x86_64-pc-windows-msvc
+        x86_64-unknown-linux-gnu:
+          sha256: d187e6dc27bb777eb904fb557ec979013fa9c0784513d5319e5e0eb5482e3f32
+          url: https://api.workers.iii.dev/download/http/0.23.2/x86_64-unknown-linux-gnu
+        x86_64-unknown-linux-musl:
+          sha256: 59095be1b4ed7f364e2a73992329684ec434585393a2fb8830a6e4d088ab6d6f
+          url: https://api.workers.iii.dev/download/http/0.23.2/x86_64-unknown-linux-musl
+      default_config:
+        concurrency_request_limit: 1024
+        cors:
+          allowed_methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+          allowed_origins:
+          - '*'
+        default_timeout: 30000
+        host: 0.0.0.0
+        port: 3111
+        webhook_listener: null
   llm-router:
     worker: package://llm-router
     requested: 1.5.3
